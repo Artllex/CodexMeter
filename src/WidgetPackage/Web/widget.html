@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { color-scheme: light dark; --bg:#303030; --fg:#f4f4f4; --muted:#c9c9c9; --grid:#565656; --accent:#4db7e5; --field:#414141; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; width:100%; height:100%; overflow:hidden; font-family:"Segoe UI Variable Text","Segoe UI",sans-serif; }
+  html,body { background:transparent; }
+  /* Keep the card background off body: HTML propagates body backgrounds to
+     the rectangular viewport, bypassing the body's rounded corners. */
+  .widget-surface { display:flex; flex-direction:column; width:100%; height:100%; overflow:hidden; padding:50px 18px 10px; border-radius:12px; background:var(--bg); color:var(--fg); }
+  .widget-surface > * { flex-shrink:0; }
+  .label { color:var(--muted); font-size:12px; line-height:1.2; }
+  .remaining { margin:2px 0 10px; color:var(--accent); font-size:27px; line-height:1.05; font-weight:650; }
+  .facts { display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; }
+  .fact { min-width:0; }
+  .fact b { display:block; margin-top:2px; font-size:14px; line-height:1.15; white-space:nowrap; }
+  .chart-section { display:flex; flex-direction:column; flex:1 1 0; min-height:0; margin-top:23px; }
+  .chart-head { display:flex; flex-shrink:0; align-items:center; justify-content:space-between; gap:12px; }
+  .chart-title { font-size:14px; font-weight:650; }
+  .total { color:var(--muted); font-size:11px; white-space:nowrap; }
+  .canvas-wrap { position:relative; flex:1 1 220px; min-height:0; max-height:220px; margin-top:5px; }
+  canvas { position:absolute; inset:0; display:block; width:100%; height:100%; }
+  .range-row { display:flex; flex-shrink:0; align-items:center; justify-content:flex-end; gap:9px; margin-top:5px; }
+  .range-label { color:var(--muted); font-size:11px; }
+  select { width:82px; padding:5px 8px; border:1px solid #565656; border-radius:7px; background:var(--field); color:var(--fg); font:inherit; font-size:12px; }
+  .error { margin-top:14px; color:#ffb4ab; }
+  @media (min-aspect-ratio:4/5) { .chart-section{display:none}.remaining{margin-bottom:8px}.facts{gap:8px 16px} }
+  @media (min-aspect-ratio:3/2) { .widget-surface{padding-top:45px}.label{font-size:11px}.fact b{font-size:13px} }
+  @media (prefers-color-scheme:light) { :root { --bg:#f7f7f7; --fg:#202020; --muted:#5f5f5f; --grid:#d1d1d1; --field:#fff; } }
+</style>
+</head>
+<body>
+<main class="widget-surface">
+  <div class="label" data-i18n="remainingLimit">Pozostały limit</div><div class="remaining" id="remaining">—</div>
+  <div class="facts">
+    <div class="fact"><span class="label" data-i18n="used">Wykorzystano</span><b id="used">—</b></div>
+    <div class="fact"><span class="label" data-i18n="reset">Reset</span><b id="reset">brak danych</b></div>
+  </div>
+  <section class="chart-section">
+    <div class="chart-head"><span class="chart-title" data-i18n="tokenUsage">Użycie tokenów</span><span class="total" id="total">brak danych</span></div>
+    <div class="canvas-wrap"><canvas id="chart" aria-label="Wykres liniowy użycia tokenów"></canvas></div>
+    <div class="range-row">
+      <label class="range-label" for="range" data-i18n="range">Zakres</label>
+      <select id="range" aria-label="Zakres wykresu">
+        <option value="7d">7d</option><option value="24h" selected>24h</option><option value="8h">8h</option><option value="1h">1h</option>
+      </select>
+    </div>
+  </section>
+  <div class="error" id="error" hidden data-i18n="readError">Nie udało się odczytać danych.</div>
+</main>
+<script>
+  const $=id=>document.getElementById(id); let model=null;
+  const language=(navigator.languages?.[0]||navigator.language||'en').toLowerCase().startsWith('pl')?'pl':'en';
+  const locale=language==='pl'?'pl-PL':'en-US';
+  const text={
+    pl:{remainingLimit:'Pozostały limit',used:'Wykorzystano',reset:'Reset',tokenUsage:'Użycie tokenów',range:'Zakres',noData:'brak danych',readError:'Nie udało się odczytać danych.',tokens:'tokenów',now:'teraz',chartLabel:'Wykres liniowy użycia tokenów',million:'mln',thousand:'tys.'},
+    en:{remainingLimit:'Remaining limit',used:'Used',reset:'Reset',tokenUsage:'Token usage',range:'Range',noData:'no data',readError:'Could not load data.',tokens:'tokens',now:'now',chartLabel:'Line chart of token usage',million:'M',thousand:'K'}
+  }[language];
+  document.documentElement.lang=language;
+  document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=text[el.dataset.i18n]);
+  $('reset').textContent=text.noData; $('total').textContent=text.noData; $('chart').setAttribute('aria-label',text.chartLabel); $('range').setAttribute('aria-label',text.range);
+  const elements = Object.fromEntries(
+    ['remaining', 'used', 'reset', 'total', 'chart', 'range', 'error'].map(id => [id, $(id)])
+  );
+  const formats = {
+    integer: new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }),
+    decimal: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }),
+    date: new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit' }),
+    time: new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }),
+    reset: new Intl.DateTimeFormat(locale, {
+      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+    })
+  };
+  const RANGE_KEY = 'codexMeterRange';
+  const REFRESH_MS = 60000;
+  let loading = false;
+  let drawPending = false;
+
+  function compact(value) {
+    const n = Number(value) || 0;
+    if (n >= 1e6) return (n >= 1e7 ? formats.integer : formats.decimal).format(n / 1e6) + ' ' + text.million;
+    if (n >= 1e3) return (n >= 1e5 ? formats.integer : formats.decimal).format(n / 1e3) + ' ' + text.thousand;
+    return formats.integer.format(n);
+  }
+
+  function niceMax(value) {
+    if (value <= 0) return 1;
+    const power = 10 ** Math.floor(Math.log10(value));
+    const fraction = value / power;
+    return (fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10) * power;
+  }
+
+  function formatDate(value, formatter, fallback = '') {
+    const date = new Date(value);
+    return value == null || !Number.isFinite(date.getTime()) ? fallback : formatter.format(date);
+  }
+
+  function labels(range, buckets) {
+    const first = buckets[0]?.start;
+    const last = buckets.at(-1)?.start;
+    return range === '7d'
+      ? [formatDate(first, formats.date), '', formatDate(last, formats.date)]
+      : [formatDate(first, formats.time), '', text.now];
+  }
+
+  function renderLimits() {
+    const limits = model?.limits;
+    const primary = (limits?.rateLimitsByLimitId?.codex || limits?.rateLimits)?.primary;
+    const rawUsed = primary?.usedPercent;
+    const used = rawUsed == null || !Number.isFinite(Number(rawUsed))
+      ? null : Math.max(0, Math.min(100, Math.round(Number(rawUsed))));
+    elements.used.textContent = used === null ? '—' : used + '%';
+    elements.remaining.textContent = used === null ? '—' : (100 - used) + '%';
+    elements.reset.textContent = primary?.resetsAt
+      ? formatDate(primary.resetsAt * 1000, formats.reset, text.noData).replace(',', ' ·')
+      : text.noData;
+  }
+
+  function scheduleDraw() {
+    if (drawPending || document.hidden) return;
+    drawPending = true;
+    requestAnimationFrame(() => {
+      drawPending = false;
+      draw();
+    });
+  }
+
+  function draw() {
+    const range = elements.range.value;
+    const series = model?.widgetUsageRanges?.[range];
+    const buckets = Array.isArray(series?.buckets) ? series.buckets : [];
+    elements.total.textContent = series ? compact(series.totalTokens) + ' ' + text.tokens : text.noData;
+
+    const canvas = elements.chart;
+    const box = canvas.parentElement.getBoundingClientRect();
+    const padding = { left: 58, right: 12, top: 10, bottom: 31 };
+    const width = box.width - padding.left - padding.right;
+    const height = box.height - padding.top - padding.bottom;
+    if (width <= 0 || height <= 0) return; // The chart is hidden in compact widgets.
+
+    const dpr = devicePixelRatio || 1;
+    canvas.width = Math.round(box.width * dpr);
+    canvas.height = Math.round(box.height * dpr);
+    const context = canvas.getContext('2d');
+    context.scale(dpr, dpr);
+    if (!series) return; // Resizing above clears an obsolete series.
+
+    const values = buckets.map(bucket => {
+      const value = Number(bucket.tokens);
+      return Number.isFinite(value) ? Math.max(0, value) : 0;
+    });
+    const max = niceMax(values.reduce((largest, value) => Math.max(largest, value), 0));
+    const css = getComputedStyle(document.documentElement);
+    context.font = '12px Segoe UI';
+    context.textBaseline = 'middle';
+    context.fillStyle = css.getPropertyValue('--muted').trim();
+    context.strokeStyle = css.getPropertyValue('--grid').trim();
+    context.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = padding.top + height * i / 4;
+      context.beginPath();
+      context.moveTo(padding.left, y + .5);
+      context.lineTo(box.width - padding.right, y + .5);
+      context.stroke();
+      context.textAlign = 'right';
+      context.fillText(compact(max * (4 - i) / 4), padding.left - 7, y);
+    }
+    const axisLabels = labels(range, buckets);
+    context.textBaseline = 'bottom';
+    ['left', 'center', 'right'].forEach((align, i) => {
+      context.textAlign = align;
+      context.fillText(axisLabels[i], padding.left + width * i / 2, box.height - 2);
+    });
+
+    const points = values.map((value, i) => ({
+      x: padding.left + (values.length === 1 ? width / 2 : width * i / (values.length - 1)),
+      y: padding.top + height - value / max * height
+    }));
+    context.strokeStyle = css.getPropertyValue('--accent').trim();
+    context.fillStyle = context.strokeStyle;
+    context.lineWidth = 3;
+    context.lineJoin = 'round';
+    context.lineCap = 'round';
+    context.beginPath();
+    points.forEach((point, i) => i ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y));
+    context.stroke();
+    points.forEach(point => {
+      context.beginPath();
+      context.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
+      context.fill();
+    });
+  }
+
+  async function load() {
+    if (loading || document.hidden) return;
+    loading = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch('https://codexmeter.local/data.json', {
+        cache: 'no-store', signal: controller.signal
+      });
+      if (!response.ok) throw new Error('Data request failed: ' + response.status);
+      const data = await response.json();
+      if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid data');
+      model = data;
+      renderLimits();
+      elements.error.hidden = true;
+      scheduleDraw();
+    } catch {
+      elements.error.hidden = false;
+    } finally {
+      clearTimeout(timeout);
+      loading = false;
+    }
+  }
+
+  try {
+    const saved = localStorage.getItem(RANGE_KEY);
+    if (Array.from(elements.range.options).some(option => option.value === saved)) elements.range.value = saved;
+  } catch {}
+  elements.range.addEventListener('change', () => {
+    try { localStorage.setItem(RANGE_KEY, elements.range.value); } catch {}
+    scheduleDraw();
+  });
+  new ResizeObserver(scheduleDraw).observe(elements.chart.parentElement);
+  matchMedia('(prefers-color-scheme:light)').addEventListener('change', scheduleDraw);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      scheduleDraw();
+      load();
+    }
+  });
+  load();
+  setInterval(load, REFRESH_MS);
+</script>
+</body>
+</html>

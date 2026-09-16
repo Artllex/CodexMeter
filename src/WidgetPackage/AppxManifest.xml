@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<Package
+	xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+	xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+	xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+	xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+	xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+	IgnorableNamespaces="uap uap3 rescap">
+
+	<Identity
+		Name="Artllex.CodexMeterWidget"
+		Publisher="CN=74512847-387C-4F9E-9BCB-505BCA110D12"
+		ProcessorArchitecture="x64"
+		Version="1.0.1.0" />
+
+	<Properties>
+		<DisplayName>Codex Meter Widget</DisplayName>
+		<PublisherDisplayName>Artllex</PublisherDisplayName>
+		<Logo>Images\StoreLogo.png</Logo>
+	</Properties>
+
+	<Dependencies>
+		<TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.22621.0" MaxVersionTested="10.0.26100.0" />
+		<TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22621.0" MaxVersionTested="10.0.26100.0" />
+		<PackageDependency Name="Microsoft.WindowsAppRuntime.2" Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" MinVersion="2.4.0.0" />
+	</Dependencies>
+
+	<Resources>
+		<Resource Language="pl-PL" /><Resource Language="en-US" />
+	</Resources>
+
+	<Applications>
+		<Application Id="App"
+			Executable="SampleWidgetProviderApp\SampleWidgetProviderApp.exe"
+			EntryPoint="Windows.FullTrustApplication">
+			<uap:VisualElements
+				DisplayName="Codex Meter Widget"
+				Description="Zużycie limitu Codex w panelu Widżety Windows"
+				BackgroundColor="transparent"
+				Square150x150Logo="Images\Square150x150Logo.png"
+				Square44x44Logo="Images\Square44x44Logo.png"
+				AppListEntry="none">
+				<uap:DefaultTile Wide310x150Logo="Images\Wide310x150Logo.png" />
+				<uap:SplashScreen Image="Images\SplashScreen.png" />
+			</uap:VisualElements>
+			<Extensions>
+				<com:Extension Category="windows.comServer">
+					<com:ComServer>
+						<com:ExeServer Executable="SampleWidgetProviderApp\SampleWidgetProviderApp.exe" Arguments="-RegisterProcessAsComServer" DisplayName="Codex Meter Widget">
+							<com:Class Id="101D03A3-6FC8-4887-9B64-310A7B164319" DisplayName="Codex Meter Widget Provider" />
+						</com:ExeServer>
+					</com:ComServer>
+				</com:Extension>
+				<uap3:Extension Category="windows.appExtension">
+					<uap3:AppExtension Name="com.microsoft.windows.widgets" DisplayName="Codex Meter" Id="CodexMeterWidgetApp" PublicFolder="Public">
+						<uap3:Properties>
+							<WidgetProvider>
+								<ProviderIcons>
+									<Icon Path="Images\StoreLogo.png" />
+								</ProviderIcons>
+								<Activation>
+									<CreateInstance ClassId="101D03A3-6FC8-4887-9B64-310A7B164319" />
+								</Activation>
+								<Definitions>
+					<Definition Id="Codex_Meter"
+						WebRequestFilter="https://codexmeter.local/*"
+										DisplayName="Codex Meter"
+										Description="Pozostały limit, wykorzystanie i tokeny Codex">
+										<Capabilities>
+											<Capability>
+												<Size Name="small" />
+											</Capability>
+											<Capability>
+												<Size Name="medium" />
+											</Capability>
+											<Capability>
+												<Size Name="large" />
+											</Capability>
+										</Capabilities>
+										<ThemeResources>
+											<Icons>
+												<Icon Path="ProviderAssets\CodexMeter_Icon.png" />
+											</Icons>
+											<Screenshots>
+												<Screenshot Path="ProviderAssets\Counting_Screenshot.png" DisplayAltText="Podgląd widżetu Codex Meter" />
+											</Screenshots>
+											<!-- DarkMode and LightMode are optional -->
+											<DarkMode />
+											<LightMode />
+										</ThemeResources>
+									</Definition>
+								</Definitions>
+							</WidgetProvider>
+						</uap3:Properties>
+					</uap3:AppExtension>
+				</uap3:Extension>
+			</Extensions>
+		</Application>
+		<Application Id="Collector"
+			Executable="Meter\CodexMeter.exe"
+			EntryPoint="Windows.FullTrustApplication">
+			<uap:VisualElements
+				DisplayName="Codex Meter"
+				Description="Monitor wykorzystania limitu Codex"
+				BackgroundColor="transparent"
+				Square150x150Logo="Images\Square150x150Logo.png"
+				Square44x44Logo="Images\Square44x44Logo.png">
+				<uap:DefaultTile Wide310x150Logo="Images\Wide310x150Logo.png" />
+			</uap:VisualElements>
+		</Application>
+	</Applications>
+	<Capabilities>
+		<Capability Name="internetClient" />
+		<rescap:Capability Name="runFullTrust" />
+	</Capabilities>
+</Package>

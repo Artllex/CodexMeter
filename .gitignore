@@ -1,0 +1,13 @@
+artifacts/
+.tools/
+**/bin/
+**/obj/
+**/x64/
+**/data/
+*.pdb
+*.pfx
+*.key
+*.user
+*.log
+probe.json
+source.txt
