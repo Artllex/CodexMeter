@@ -1204,7 +1204,7 @@ class MeterForm : Form
             width: 137);
         y += 33;
         var conversations = new[] { L.Pick("Wszystkie rozmowy", "All conversations") }
-            .Concat(local?.Prompts.Select(x => string.IsNullOrWhiteSpace(x.Conversation) ? L.LocalConversation : x.Conversation).Distinct().OrderBy(x => x) ?? Enumerable.Empty<string>())
+            .Concat(ChartConversations())
             .ToArray();
         int selectedConversation = Math.Max(0, Array.IndexOf(conversations, chartConversationFilter));
         if (selectedConversation == 0 && chartConversationFilter.Length > 0) chartConversationFilter = "";
@@ -1221,14 +1221,7 @@ class MeterForm : Form
     List<ChartBucket> ChartPoints()
     {
         var points = new List<ChartBucket>();
-        TimeSpan range = chartMode switch
-        {
-            0 => TimeSpan.FromHours(1),
-            1 => TimeSpan.FromHours(4),
-            2 => TimeSpan.FromHours(24),
-            3 => TimeSpan.FromDays(7),
-            _ => TimeSpan.FromDays(30)
-        };
+        TimeSpan range = ChartRange();
         var from = DateTimeOffset.UtcNow - range;
         if (local != null)
         {
@@ -1252,6 +1245,28 @@ class MeterForm : Form
         }
         if (points.Count == 0) points.Add(new ChartBucket("", null, L.NoData));
         return points;
+    }
+    TimeSpan ChartRange() => chartMode switch
+    {
+        0 => TimeSpan.FromHours(1),
+        1 => TimeSpan.FromHours(4),
+        2 => TimeSpan.FromHours(24),
+        3 => TimeSpan.FromDays(7),
+        _ => TimeSpan.FromDays(30)
+    };
+    IEnumerable<string> ChartConversations()
+    {
+        if (local == null) return Enumerable.Empty<string>();
+        var conversationsBySession = local.Prompts
+            .Where(x => !string.IsNullOrWhiteSpace(x.SessionId))
+            .GroupBy(x => x.SessionId)
+            .ToDictionary(group => group.Key, group => group.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.Conversation))?.Conversation ?? L.LocalConversation);
+        var from = DateTimeOffset.UtcNow - ChartRange();
+        return local.Samples
+            .Where(x => x.At >= from)
+            .Select(x => conversationsBySession.TryGetValue(x.SessionId, out var conversation) ? conversation : L.LocalConversation)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(x => x, StringComparer.CurrentCulture);
     }
     int RenderPromptHistory(int y)
     {
