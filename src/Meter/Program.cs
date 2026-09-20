@@ -224,8 +224,9 @@ sealed class CompletionPopup : Form
         contentPanel.Controls.Add(fullPrompt); contentPanel.Controls.Add(expandHost);
         var parametersSeparator = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, P(3), 0, P(3)), BackColor = Color.FromArgb(78, 78, 78), Height = P(1), Visible = hasParameters };
         var parametersPanel = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, Visible = hasParameters };
-        var fullParameters = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, ScrollBars = RichTextBoxScrollBars.None, BorderStyle = BorderStyle.None, BackColor = BackColor, ForeColor = valueColor, Font = new Font("Consolas", 7.2f), DetectUrls = false, WordWrap = false, Text = "", Margin = Padding.Empty };
-        string collapsedParameters = L.Pick($"Parametry: {parameterLineCount} linii…", $"Parameters: {parameterLineCount} lines…");
+        var parametersJsonFont = new Font("Consolas", 7.2f);
+        var fullParameters = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, ScrollBars = RichTextBoxScrollBars.None, BorderStyle = BorderStyle.None, BackColor = BackColor, ForeColor = valueColor, Font = itemFont, DetectUrls = false, WordWrap = false, Text = "", Margin = Padding.Empty };
+        string collapsedParameters = L.Pick($"{parameterLineCount} linii…", $"{parameterLineCount} lines…");
         var expandParametersHost = new Panel { Dock = DockStyle.Right, Width = P(34), BackColor = BackColor, Visible = hasParameters };
         var expandParameters = new Button { Text = "⌄", Location = new Point(P(4), 0), Size = new Size(P(30), P(30)), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(45, 45, 45), ForeColor = valueColor, Font = new Font("Segoe UI", 9), TabStop = false };
         expandParameters.FlatAppearance.BorderSize = 0; expandParameters.FlatAppearance.MouseOverBackColor = Color.FromArgb(70, 83, 111); expandParameters.FlatAppearance.MouseDownBackColor = Color.FromArgb(61, 72, 96);
@@ -336,6 +337,7 @@ sealed class CompletionPopup : Form
         {
             if (!hasParameters) return;
             parametersExpanded = expanded;
+            fullParameters.Font = expanded ? parametersJsonFont : itemFont;
             fullParameters.Text = expanded ? rawParameters : collapsedParameters;
             expandParameters.Text = expanded ? "⌃" : "⌄";
             UpdateContentLayout();
