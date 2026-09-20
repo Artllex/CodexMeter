@@ -157,7 +157,7 @@ sealed class CompletionPopup : Form
         StartPosition = FormStartPosition.Manual;
         TopMost = true;
         AutoScaleMode = AutoScaleMode.None;
-        ClientSize = new Size(P(440), P(280 + metadataHeight));
+        ClientSize = new Size(P(440), P(256 + metadataHeight));
         BackColor = Color.FromArgb(35, 35, 35);
         ForeColor = Color.FromArgb(242, 242, 242);
         Padding = new Padding(P(12), P(10), P(12), P(10));
@@ -166,14 +166,14 @@ sealed class CompletionPopup : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 9 + (hasPromptFlags ? 1 : 0) + (hasPromptStatus ? 1 : 0) + (hasParameters ? 2 : 0),
+            RowCount = 8 + (hasPromptFlags ? 1 : 0) + (hasPromptStatus ? 1 : 0) + (hasParameters ? 2 : 0),
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, P(110)));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(28)));
-        for (int row = 0; row < 3; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(24)));
+        for (int row = 0; row < 2; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(24)));
         if (hasPromptFlags) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(flagsHeight)));
         if (hasPromptStatus) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(statusHeight)));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(6)));
@@ -204,6 +204,14 @@ sealed class CompletionPopup : Form
         var itemFont = new Font("Segoe UI", 8.3f);
         Label FieldLabel(string text) => new() { Text = text, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 8.3f, FontStyle.Bold), ForeColor = fieldColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
         Label FieldValue(string text, Color? color = null) => new() { Text = text, Dock = DockStyle.Fill, Font = itemFont, ForeColor = color ?? valueColor, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
+        Panel ModelValue()
+        {
+            var host = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
+            var modelLabel = new Label { Text = model + " · ", Dock = DockStyle.Left, AutoSize = true, Font = itemFont, ForeColor = valueColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
+            host.Controls.Add(FieldValue(L.Thinking(effort), ThinkingColor(effort)));
+            host.Controls.Add(modelLabel);
+            return host;
+        }
         string conversationOrder = prompt.ConversationIndex > 0 ? $"[{prompt.ConversationIndex}] " : "";
         var context = new ConversationLine("", conversation, conversationOrder) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = valueColor, Font = new Font("Segoe UI", 8.3f, FontStyle.Bold) };
         var separator = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, P(3), 0, P(4)), BackColor = Color.FromArgb(78, 78, 78), Height = P(1) };
@@ -216,9 +224,9 @@ sealed class CompletionPopup : Form
         string collapsedText = singleLineText.Length > 72 ? singleLineText[..72].TrimEnd() + "…" : singleLineText;
         bool canExpandContent = singleLineText.Length > 72 || fullText.Contains(Environment.NewLine, StringComparison.Ordinal);
         var contentPanel = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
-        var fullPrompt = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, ScrollBars = RichTextBoxScrollBars.None, BorderStyle = BorderStyle.None, BackColor = BackColor, ForeColor = valueColor, Font = new Font("Segoe UI", 7.5f), DetectUrls = false, WordWrap = true, Text = collapsedText, Margin = Padding.Empty };
+        var fullPrompt = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, ScrollBars = RichTextBoxScrollBars.None, BorderStyle = BorderStyle.None, BackColor = BackColor, ForeColor = valueColor, Font = itemFont, DetectUrls = false, WordWrap = true, Text = collapsedText, Margin = Padding.Empty };
         var expandHost = new Panel { Dock = DockStyle.Right, Width = P(34), BackColor = BackColor, Visible = canExpandContent };
-        var expandContent = new Button { Text = "⌄", Location = new Point(P(4), 0), Size = new Size(P(30), P(30)), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(45, 45, 45), ForeColor = valueColor, Font = new Font("Segoe UI", 9), TabStop = false };
+        var expandContent = new Button { Text = "⌄", Location = new Point(P(4), 0), Size = new Size(P(30), P(26)), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(45, 45, 45), ForeColor = valueColor, Font = new Font("Segoe UI", 9), TabStop = false };
         expandContent.FlatAppearance.BorderSize = 0; expandContent.FlatAppearance.MouseOverBackColor = Color.FromArgb(70, 83, 111); expandContent.FlatAppearance.MouseDownBackColor = Color.FromArgb(61, 72, 96);
         expandHost.Controls.Add(expandContent);
         contentPanel.Controls.Add(fullPrompt); contentPanel.Controls.Add(expandHost);
@@ -228,7 +236,7 @@ sealed class CompletionPopup : Form
         var fullParameters = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, ScrollBars = RichTextBoxScrollBars.None, BorderStyle = BorderStyle.None, BackColor = BackColor, ForeColor = valueColor, Font = itemFont, DetectUrls = false, WordWrap = false, Text = "", Margin = Padding.Empty };
         string collapsedParameters = L.Pick($"{parameterLineCount} linii…", $"{parameterLineCount} lines…");
         var expandParametersHost = new Panel { Dock = DockStyle.Right, Width = P(34), BackColor = BackColor, Visible = hasParameters };
-        var expandParameters = new Button { Text = "⌄", Location = new Point(P(4), 0), Size = new Size(P(30), P(30)), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(45, 45, 45), ForeColor = valueColor, Font = new Font("Segoe UI", 9), TabStop = false };
+        var expandParameters = new Button { Text = "⌄", Location = new Point(P(4), 0), Size = new Size(P(30), P(26)), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(45, 45, 45), ForeColor = valueColor, Font = new Font("Segoe UI", 9), TabStop = false };
         expandParameters.FlatAppearance.BorderSize = 0; expandParameters.FlatAppearance.MouseOverBackColor = Color.FromArgb(70, 83, 111); expandParameters.FlatAppearance.MouseDownBackColor = Color.FromArgb(61, 72, 96);
         expandParametersHost.Controls.Add(expandParameters);
         parametersPanel.Controls.Add(fullParameters); parametersPanel.Controls.Add(expandParametersHost);
@@ -242,10 +250,8 @@ sealed class CompletionPopup : Form
         layout.Controls.Add(FieldLabel(L.Pick("Rozmowa", "Conversation")), 0, 1);
         layout.Controls.Add(context, 1, 1);
         layout.Controls.Add(FieldLabel(L.Pick("Model", "Model")), 0, 2);
-        layout.Controls.Add(FieldValue($"{model} · {effort}"), 1, 2);
-        layout.Controls.Add(FieldLabel(L.Pick("Zapytanie", "Prompt")), 0, 3);
-        layout.Controls.Add(FieldValue(preview), 1, 3);
-        int nextMetadataRow = 4;
+        layout.Controls.Add(ModelValue(), 1, 2);
+        int nextMetadataRow = 3;
         int flagsRow = hasPromptFlags ? nextMetadataRow++ : -1;
         int statusRow = hasPromptStatus ? nextMetadataRow++ : -1;
         int separatorRow = nextMetadataRow;
@@ -301,7 +307,7 @@ sealed class CompletionPopup : Form
         {
             int contentHeight = Math.Max(P(26), MeasureTextHeight(fullPrompt, contentPanel, canExpandContent ? expandHost.Width : 0));
             int parametersHeight = hasParameters ? Math.Max(P(26), MeasureTextHeight(fullParameters, parametersPanel, expandParametersHost.Width)) : 0;
-            int fixedPanelHeight = P(180 + metadataHeight);
+            int fixedPanelHeight = P(156 + metadataHeight);
             int maximumClientHeight = Screen.FromControl(this).WorkingArea.Height - P(24);
             int parametersSpacing = hasParameters ? P(6) : 0;
             int totalHeight = fixedPanelHeight + contentHeight + parametersSpacing + parametersHeight;
@@ -402,6 +408,14 @@ sealed class CompletionPopup : Form
         }
         return string.Join(Environment.NewLine + Environment.NewLine, values);
     }
+    static Color ThinkingColor(string effort) => effort.Trim().ToLowerInvariant() switch
+    {
+        "low" => Color.FromArgb(128, 225, 156),
+        "medium" => Color.FromArgb(245, 198, 76),
+        "high" => Color.FromArgb(255, 151, 81),
+        "xhigh" or "max" or "ultra" => Color.FromArgb(242, 97, 91),
+        _ => Color.FromArgb(242, 242, 242)
+    };
     protected override CreateParams CreateParams
     {
         get
