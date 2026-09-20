@@ -1414,11 +1414,15 @@ class MeterForm : Form
         const int rowGap = 8;
         var activityByPrompt = prompts.Select(PromptFlags.Items).ToList();
         var statusByPrompt = prompts.Select(PromptFlags.StatusItems).ToList();
+        using var historyFlagMeasureFont = new Font("Segoe UI", 6.8f);
+        int HistoryFlagsHeight(IReadOnlyList<PromptFlag> flags) => flags.Count == 0
+            ? 0
+            : Math.Max(17, (int)Math.Ceiling(FlagLine.RequiredHeight(flags, historyFlagMeasureFont, S(175), S(17)) / layoutScale));
         var contentHeights = Enumerable.Range(0, prompts.Count).Select(index =>
         {
-            int flagsHeight = activityByPrompt[index].Count == 0 ? 0 : Math.Clamp(17 * (int)Math.Ceiling(activityByPrompt[index].Count / 3.0), 17, 102);
+            int flagsHeight = HistoryFlagsHeight(activityByPrompt[index]);
             int statusHeight = statusByPrompt[index].Count > 0 ? 20 : 0;
-            return 101 + flagsHeight + statusHeight;
+            return 93 + flagsHeight + statusHeight;
         }).ToList();
         int totalHeight = contentHeights.Sum() + prompts.Count * rowGap;
         var list = new Panel { Location = new Point(S(17), S(y)), Size = new Size(S(286), S(totalHeight)) };
@@ -1448,7 +1452,7 @@ class MeterForm : Form
             if (activityFlags.Count > 0)
             {
                 row.Controls.Add(Field(L.Pick("Flagi", "Flags"), 93));
-                int flagHeight = Math.Clamp(17 * (int)Math.Ceiling(activityFlags.Count / 3.0), 17, 102);
+                int flagHeight = HistoryFlagsHeight(activityFlags);
                 row.Controls.Add(new FlagLine(activityFlags) { Location = new Point(S(82), S(93)), Size = new Size(S(175), S(flagHeight)), AlignTop = true, ForeColor = ForeColor, Font = new Font("Segoe UI", 6.8f) });
                 nextDetailTop += flagHeight;
             }
