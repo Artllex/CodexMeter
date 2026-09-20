@@ -29,6 +29,27 @@ static class TokenVisuals
     public static Color Output(long value) => value >= 5_000 ? High : value >= 1_000 ? Medium : Low;
 }
 
+sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
+{
+    public static readonly Color HoverColor = Color.FromArgb(70, 83, 111);
+    protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+    {
+        bool hovered = e.Item.Selected || e.Item.BackColor == HoverColor;
+        using var brush = new SolidBrush(hovered ? HoverColor : e.ToolStrip?.BackColor ?? Color.FromArgb(45, 45, 45));
+        e.Graphics.FillRectangle(brush, new Rectangle(Point.Empty, e.Item.Size));
+    }
+    protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+    {
+        using var pen = new Pen(Color.FromArgb(88, 88, 88));
+        e.Graphics.DrawRectangle(pen, 0, 0, e.AffectedBounds.Width - 1, e.AffectedBounds.Height - 1);
+    }
+    protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+    {
+        using var pen = new Pen(Color.FromArgb(78, 78, 78));
+        e.Graphics.DrawLine(pen, 6, e.Item.Height / 2, e.Item.Width - 6, e.Item.Height / 2);
+    }
+}
+
 static class AppMessages
 {
     const int HWND_BROADCAST = 0xFFFF;
@@ -112,19 +133,22 @@ sealed class CompletionPopup : Form
 {
     static readonly List<CompletionPopup> Active = new();
     readonly System.Windows.Forms.Timer closeTimer = new() { Interval = 10000 };
+    bool lifetimeElapsed;
 
     CompletionPopup(PromptUsage prompt)
     {
         using var screenGraphics = Graphics.FromHwnd(IntPtr.Zero);
         float dpiScale = Math.Max(1f, screenGraphics.DpiX / 96f);
         int P(int value) => Math.Max(1, (int)Math.Round(value * dpiScale));
+        string promptFlags = PromptFlags.Text(prompt);
+        bool hasPromptFlags = promptFlags.Length > 0;
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         TopMost = true;
         AutoScaleMode = AutoScaleMode.None;
-        ClientSize = new Size(P(360), P(214));
+        ClientSize = new Size(P(440), P(hasPromptFlags ? 368 : 320));
         BackColor = Color.FromArgb(35, 35, 35);
         ForeColor = Color.FromArgb(242, 242, 242);
         Padding = new Padding(P(12), P(10), P(12), P(10));
@@ -133,16 +157,19 @@ sealed class CompletionPopup : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 7,
+            RowCount = hasPromptFlags ? 10 : 9,
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, P(111)));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, P(120)));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(34)));
         for (int row = 0; row < 3; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(30)));
+        if (hasPromptFlags) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(48)));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(8)));
         for (int row = 0; row < 2; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(30)));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(8)));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(32)));
 
         var fieldColor = Color.FromArgb(170, 170, 170);
         var valueColor = Color.FromArgb(242, 242, 242);
@@ -162,25 +189,121 @@ sealed class CompletionPopup : Form
         var itemFont = new Font("Segoe UI", 9.5f);
         Label FieldLabel(string text) => new() { Text = text, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold), ForeColor = fieldColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
         Label FieldValue(string text, Color? color = null) => new() { Text = text, Dock = DockStyle.Fill, Font = itemFont, ForeColor = color ?? valueColor, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
-        var context = new ConversationLine("", conversation) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = valueColor, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
+        string conversationOrder = prompt.ConversationIndex > 0 ? $"[{prompt.ConversationIndex}] " : "";
+        var context = new ConversationLine("", conversation, conversationOrder) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = valueColor, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
         var separator = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, P(3), 0, P(4)), BackColor = Color.FromArgb(78, 78, 78), Height = P(1) };
-        layout.Controls.Add(title, 0, 0);
-        layout.SetColumnSpan(title, 2);
+        var contentSeparator = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, P(3), 0, P(4)), BackColor = Color.FromArgb(78, 78, 78), Height = P(1) };
+        string popupText = string.IsNullOrWhiteSpace(prompt.OriginalText) ? prompt.Text : prompt.OriginalText;
+        string fullText = popupText.Replace("\r\n", "\n").Replace("\n", Environment.NewLine).Trim();
+        string singleLineText = string.Join(" ", fullText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        string collapsedText = singleLineText.Length > 72 ? singleLineText[..72].TrimEnd() + "…" : singleLineText;
+        bool canExpandContent = singleLineText.Length > 72 || fullText.Contains(Environment.NewLine, StringComparison.Ordinal);
+        var contentPanel = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
+        var fullPrompt = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, ScrollBars = RichTextBoxScrollBars.None, BorderStyle = BorderStyle.None, BackColor = BackColor, ForeColor = valueColor, Font = new Font("Segoe UI", 8.5f), DetectUrls = false, WordWrap = true, Text = collapsedText, Margin = Padding.Empty };
+        var expandHost = new Panel { Dock = DockStyle.Right, Width = P(34), BackColor = BackColor, Visible = canExpandContent };
+        var expandContent = new Button { Text = "⌄", Location = new Point(P(4), 0), Size = new Size(P(30), P(30)), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(45, 45, 45), ForeColor = valueColor, Font = new Font("Segoe UI", 9), TabStop = false };
+        expandContent.FlatAppearance.BorderSize = 0; expandContent.FlatAppearance.MouseOverBackColor = Color.FromArgb(70, 83, 111); expandContent.FlatAppearance.MouseDownBackColor = Color.FromArgb(61, 72, 96);
+        expandHost.Controls.Add(expandContent);
+        contentPanel.Controls.Add(fullPrompt); contentPanel.Controls.Add(expandHost);
+        var titleBar = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
+        var close = new Button { Text = "X", Dock = DockStyle.Right, Width = P(32), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(45, 45, 45), ForeColor = valueColor, Font = new Font("Segoe UI", 8), TabStop = false };
+        close.FlatAppearance.BorderSize = 0; close.FlatAppearance.MouseOverBackColor = Color.FromArgb(196, 43, 28); close.FlatAppearance.MouseDownBackColor = Color.FromArgb(153, 30, 22);
+        close.Click += (_, _) => Close();
+        titleBar.Controls.Add(title); titleBar.Controls.Add(close);
+        layout.Controls.Add(titleBar, 0, 0);
+        layout.SetColumnSpan(titleBar, 2);
         layout.Controls.Add(FieldLabel(L.Pick("Rozmowa", "Conversation")), 0, 1);
         layout.Controls.Add(context, 1, 1);
         layout.Controls.Add(FieldLabel(L.Pick("Model", "Model")), 0, 2);
         layout.Controls.Add(FieldValue($"{model} · {effort}"), 1, 2);
         layout.Controls.Add(FieldLabel(L.Pick("Zapytanie", "Prompt")), 0, 3);
         layout.Controls.Add(FieldValue(preview), 1, 3);
-        layout.Controls.Add(separator, 0, 4);
+        int flagsRow = 4;
+        int separatorRow = hasPromptFlags ? 5 : 4;
+        int inputRow = separatorRow + 1;
+        int outputRow = separatorRow + 2;
+        int contentSeparatorRow = separatorRow + 3;
+        int contentRow = separatorRow + 4;
+        if (hasPromptFlags)
+        {
+            layout.Controls.Add(FieldLabel(L.Pick("Flagi", "Flags")), 0, flagsRow);
+            layout.Controls.Add(new FlagLine(PromptFlags.Items(prompt)) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = valueColor, Font = new Font("Segoe UI", 8.3f) }, 1, flagsRow);
+        }
+        layout.Controls.Add(separator, 0, separatorRow);
         layout.SetColumnSpan(separator, 2);
-        layout.Controls.Add(FieldLabel(L.Pick("Tokeny IN", "Input tokens")), 0, 5);
-        layout.Controls.Add(FieldValue(Short(prompt.InputTokens), TokenVisuals.Input(prompt.InputTokens)), 1, 5);
-        layout.Controls.Add(FieldLabel(L.Pick("Tokeny OUT", "Output tokens")), 0, 6);
-        layout.Controls.Add(FieldValue(Short(prompt.OutputTokens), TokenVisuals.Output(prompt.OutputTokens)), 1, 6);
+        layout.Controls.Add(FieldLabel(L.Pick("Tokeny IN", "Input tokens")), 0, inputRow);
+        layout.Controls.Add(FieldValue(Short(prompt.InputTokens), TokenVisuals.Input(prompt.InputTokens)), 1, inputRow);
+        layout.Controls.Add(FieldLabel(L.Pick("Tokeny OUT", "Output tokens")), 0, outputRow);
+        layout.Controls.Add(FieldValue(Short(prompt.OutputTokens), TokenVisuals.Output(prompt.OutputTokens)), 1, outputRow);
+        layout.Controls.Add(contentSeparator, 0, contentSeparatorRow);
+        layout.SetColumnSpan(contentSeparator, 2);
+        var contentFieldLabel = FieldLabel(L.Pick("Zapytanie", "Prompt"));
+        contentFieldLabel.TextAlign = ContentAlignment.TopLeft;
+        contentFieldLabel.Padding = new Padding(0, P(4), 0, 0);
+        layout.Controls.Add(contentFieldLabel, 0, contentRow);
+        layout.Controls.Add(contentPanel, 1, contentRow);
         Controls.Add(layout);
-        foreach (Control control in Controls.Cast<Control>().Append(this)) control.Click += (_, _) => Close();
-        closeTimer.Tick += (_, _) => { closeTimer.Stop(); Close(); };
+        bool contentExpanded = false;
+        void SetContentExpanded(bool expanded)
+        {
+            expanded &= canExpandContent;
+            contentExpanded = expanded;
+            fullPrompt.Text = expanded ? fullText : collapsedText;
+            expandContent.Text = expanded ? "⌃" : "⌄";
+            layout.PerformLayout();
+            int textWidth = Math.Max(P(80), contentPanel.Width - (canExpandContent ? expandHost.Width : 0));
+            int measuredHeight = TextRenderer.MeasureText(fullPrompt.Text, fullPrompt.Font, new Size(textWidth, int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl).Height;
+            int contentHeight = Math.Max(P(32), measuredHeight + P(8));
+            int fixedPanelHeight = hasPromptFlags ? P(268) : P(220);
+            if (expanded)
+            {
+                int maximumClientHeight = (Screen.FromControl(this).WorkingArea.Height - P(24));
+                if (fixedPanelHeight + contentHeight > maximumClientHeight)
+                {
+                    contentHeight = Math.Max(P(32), maximumClientHeight - fixedPanelHeight);
+                    fullPrompt.ScrollBars = RichTextBoxScrollBars.Vertical;
+                }
+                else fullPrompt.ScrollBars = RichTextBoxScrollBars.None;
+            }
+            else fullPrompt.ScrollBars = RichTextBoxScrollBars.None;
+            layout.RowStyles[contentRow].Height = contentHeight;
+            ClientSize = new Size(ClientSize.Width, fixedPanelHeight + contentHeight);
+            Reposition();
+        }
+        expandContent.Click += (_, _) => SetContentExpanded(!contentExpanded);
+        SetContentExpanded(false);
+        void KeepVisible(object? sender, EventArgs e)
+        {
+            if (lifetimeElapsed) closeTimer.Stop();
+        }
+        void CloseAfterLeave(object? sender, EventArgs e)
+        {
+            BeginInvoke((Action)(() =>
+            {
+                if (lifetimeElapsed && !IsDisposed && !Bounds.Contains(Cursor.Position))
+                {
+                    closeTimer.Interval = 1000;
+                    closeTimer.Start();
+                }
+            }));
+        }
+        void WatchHover(Control control)
+        {
+            control.MouseEnter += KeepVisible;
+            control.MouseLeave += CloseAfterLeave;
+            foreach (Control child in control.Controls) WatchHover(child);
+        }
+        WatchHover(this);
+        closeTimer.Tick += (_, _) =>
+        {
+            closeTimer.Stop();
+            if (!lifetimeElapsed)
+            {
+                lifetimeElapsed = true;
+                if (Bounds.Contains(Cursor.Position)) return;
+            }
+            Close();
+        };
         FormClosed += (_, _) =>
         {
             closeTimer.Dispose();
@@ -215,19 +338,45 @@ sealed class CompletionPopup : Form
         var sample = new PromptUsage
         {
             At = DateTimeOffset.Now,
-            Text = "Dodajmy jednolitą typografię oraz czytelne pola w powiadomieniu.",
+            Text = "Dodajmy jednolitą typografię oraz czytelne pola w powiadomieniu. Po rozwinięciu pokażmy pełną treść i zwiększmy wysokość okna dokładnie o potrzebne miejsce.",
+            OriginalText = "# Files mentioned by the user:\n\n## projekt.cs: C:\\CODE\\projekt.cs\n\nDistinguish instructions in attached documents from the user's request.\n\n## My request:\nDodajmy jednolitą typografię oraz czytelne pola w powiadomieniu. Po rozwinięciu pokażmy pełną treść.",
             InputTokens = 459_000,
             OutputTokens = 949,
             Conversation = "✅ 🐙 Ⓧ DownloadLens",
             Model = "gpt-5.6-terra",
-            ReasoningEffort = "low"
+            ReasoningEffort = "low",
+            ConversationIndex = 14,
+            FileCount = 2,
+            PictureCount = 1,
+            WorkedOnCode = true,
+            GitCommit = true,
+            GeneratedPicture = true
         };
+        sample.McpTools.Add("figma: get_file");
         using var popup = new CompletionPopup(sample);
         popup.Show();
         Application.DoEvents();
         using var image = new Bitmap(popup.Width, popup.Height);
         popup.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
         image.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+        IEnumerable<Control> Descendants(Control parent)
+        {
+            foreach (Control child in parent.Controls)
+            {
+                yield return child;
+                foreach (var descendant in Descendants(child)) yield return descendant;
+            }
+        }
+        var expander = Descendants(popup).OfType<Button>().FirstOrDefault(button => button.Text != "X");
+        if (expander != null)
+        {
+            expander.PerformClick();
+            Application.DoEvents();
+            using var expandedImage = new Bitmap(popup.Width, popup.Height);
+            popup.DrawToBitmap(expandedImage, new Rectangle(Point.Empty, expandedImage.Size));
+            string expandedPath = Path.Combine(Path.GetDirectoryName(path)!, Path.GetFileNameWithoutExtension(path) + "-expanded" + Path.GetExtension(path));
+            expandedImage.Save(expandedPath, System.Drawing.Imaging.ImageFormat.Png);
+        }
         popup.Hide();
     }
 
@@ -408,7 +557,9 @@ class MeterForm : Form
         "CodexMeter", "data");
     bool busy, quitting, keepOnTaskbar = true;
     bool chartOpen, promptHistoryOpen, localBusy;
-    int chartMode = 1;
+    int chartMode = 0, chartTokenMode = 0;
+    string chartConversationFilter = "";
+    ContextMenuStrip? activeSelectMenu;
     LocalUsage? local;
     string? localError;
     string? remoteError;
@@ -679,15 +830,8 @@ class MeterForm : Form
             DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
             image.Save(Path.Combine(AppContext.BaseDirectory, $"view-{mode}.png"));
         }
-        current = saved; chartMode = 1; Render();
-        var sample = new PromptUsage { At = DateTimeOffset.Now, Text = "Przykładowy prompt do sprawdzenia podglądu.\n\nTreść pozostaje czytelna, można ją zaznaczyć i skopiować.", Tokens = 123456, Complete = true };
-        using var dialog = CreatePromptDialog(sample, 1);
-        dialog.Show(this); Application.DoEvents();
-        using var shot = new Bitmap(dialog.Width, dialog.Height);
-        dialog.DrawToBitmap(shot, new Rectangle(Point.Empty, shot.Size));
-        shot.Save(Path.Combine(AppContext.BaseDirectory, "prompt-preview.png"));
-        dialog.Close();
-        File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "analytics-test.txt"), "\nPASS: four chart modes, weekly/monthly aggregation, missing days and prompt dialog");
+        current = saved; chartMode = 0; Render();
+        File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "analytics-test.txt"), "\nPASS: chart ranges and completion popup");
     }
     async Task RefreshLocal(bool showBusy = true)
     {
@@ -811,11 +955,11 @@ class MeterForm : Form
         if (remoteError != null) { status.Text = L.Pick("Dane nieaktualne · ponowię za 3 min", "Data is stale · retrying in 3 min"); tips.SetToolTip(status, remoteError); }
         int y = 166;
         var chartToggle = SectionButton((chartOpen ? "▾" : "▸") + "  " + L.Pick("Wykres użycia", "Usage chart"), y);
-        chartToggle.Click += async (_, _) => { chartOpen = !chartOpen; Render(); if (chartOpen && local == null) await RefreshLocal(); };
+        chartToggle.Click += async (_, _) => { chartOpen = !chartOpen; if (chartOpen) promptHistoryOpen = false; Render(); if (chartOpen && local == null) await RefreshLocal(); };
         y += 34;
         if (chartOpen) y = RenderChart(y);
         var promptHistoryToggle = SectionButton((promptHistoryOpen ? "▾" : "▸") + "  " + L.Pick("Ostatnie prompty", "Recent prompts"), y);
-        promptHistoryToggle.Click += async (_, _) => { promptHistoryOpen = !promptHistoryOpen; Render(); if (promptHistoryOpen && local == null) await RefreshLocal(); };
+        promptHistoryToggle.Click += async (_, _) => { promptHistoryOpen = !promptHistoryOpen; if (promptHistoryOpen) chartOpen = false; Render(); if (promptHistoryOpen && local == null) await RefreshLocal(); };
         y += 34;
         if (promptHistoryOpen) y = RenderPromptHistory(y);
         status.Location = new Point(S(20), S(y + 7)); status.Size = new Size(S(280), S(18)); body.Controls.Add(status);
@@ -841,86 +985,247 @@ class MeterForm : Form
         var button = new Button { Text = text, Location = new Point(S(17), S(y)), Size = new Size(S(283), S(30)), TextAlign = ContentAlignment.MiddleLeft, FlatStyle = FlatStyle.Flat, ForeColor = ForeColor, BackColor = BackColor, TabStop = true };
         button.FlatAppearance.BorderSize = 0; body.Controls.Add(button); return button;
     }
-    Button SelectAt(string[] choices, int selected, int y, Action<int> changed)
+    Button SelectAt(string[] choices, int selected, int y, Action<int> changed, bool searchable = false, int x = 20, int width = 280)
     {
-        var select = new Button { Text = choices[selected] + "    ▾", Location = new Point(S(20), S(y)), Size = new Size(S(280), S(27)), FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, BackColor = Raised, ForeColor = MainText, Font = new Font("Segoe UI", 8.5f), TabStop = true };
+        var select = new Button { Text = choices[selected], Location = new Point(S(x), S(y)), Size = new Size(S(width), S(27)), Padding = new Padding(S(10), 0, S(36), 0), FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, BackColor = Raised, ForeColor = MainText, Font = new Font("Segoe UI", 8.5f), TabStop = true };
         select.FlatAppearance.BorderColor = Color.FromArgb(73, 73, 73);
+        select.FlatAppearance.MouseOverBackColor = DarkMenuRenderer.HoverColor;
+        select.FlatAppearance.MouseDownBackColor = DarkMenuRenderer.HoverColor;
+        bool suppressNextOpen = false;
+        void CloseOpenMenu()
+        {
+            if (activeSelectMenu is { IsDisposed: false, Visible: true })
+            {
+                suppressNextOpen = true;
+                activeSelectMenu.Close();
+            }
+        }
+        select.MouseDown += (_, _) => CloseOpenMenu();
         select.Click += (_, _) =>
         {
-            var menu = new ContextMenuStrip { BackColor = Raised, ForeColor = MainText, ShowImageMargin = false, Font = new Font("Segoe UI", 9) };
-            bool selectionQueued = false;
-            for (int i = 0; i < choices.Length; i++)
+            if (suppressNextOpen) { suppressNextOpen = false; return; }
+            var menu = new ContextMenuStrip { BackColor = Raised, ForeColor = MainText, ShowImageMargin = false, Font = new Font("Segoe UI", 9), Renderer = new DarkMenuRenderer() };
+            activeSelectMenu = menu;
+            menu.Closing += (_, _) =>
             {
-                int index = i; var item = menu.Items.Add((i == selected ? "✓  " : "    ") + choices[i]);
-                item.Click += (_, _) =>
+                // Windows dismisses a ContextMenuStrip before the owner receives Click.
+                // Remember that click so the same control acts strictly as a toggle.
+                if (select.RectangleToScreen(select.ClientRectangle).Contains(Cursor.Position)) suppressNextOpen = true;
+            };
+            menu.Closed += (_, _) => { if (activeSelectMenu == menu) activeSelectMenu = null; };
+            bool selectionQueued = false;
+            TextBox? search = null;
+            void PopulateChoices()
+            {
+                foreach (var item in menu.Items.OfType<ToolStripMenuItem>().ToArray())
                 {
-                    if (selectionQueued) return;
-                    selectionQueued = true;
-                    BeginInvoke((Action)(() =>
+                    menu.Items.Remove(item);
+                    item.Dispose();
+                }
+                string filter = search?.Text.Trim() ?? "";
+                for (int i = 0; i < choices.Length; i++)
+                {
+                    if (filter.Length > 0 && choices[i].IndexOf(filter, StringComparison.CurrentCultureIgnoreCase) < 0) continue;
+                    int index = i; var item = menu.Items.Add((i == selected ? "✓  " : "    ") + choices[i]);
+                    item.Padding = new Padding(S(5), S(2), S(5), S(2));
+                    item.MouseEnter += (_, _) => { item.BackColor = DarkMenuRenderer.HoverColor; item.Invalidate(); };
+                    item.MouseLeave += (_, _) => { item.BackColor = Color.Empty; item.Invalidate(); };
+                    item.Click += (_, _) =>
                     {
-                        // The drop-down finishes closing after Click. Update only afterwards.
-                        if (!menu.IsDisposed) menu.Dispose();
-                        if (IsDisposed) return;
-                        changed(index);
-                        Render();
-                    }));
-                };
+                        if (selectionQueued) return;
+                        selectionQueued = true;
+                        BeginInvoke((Action)(() =>
+                        {
+                            if (!menu.IsDisposed) menu.Dispose();
+                            if (IsDisposed) return;
+                            changed(index);
+                            Render();
+                        }));
+                    };
+                }
             }
+            if (searchable)
+            {
+                const int searchWidth = 252;
+                const int searchHeightPx = 65;
+                const int dividerLeftPx = 63, dividerHeightPx = 55;
+                const int fieldLeftPx = 73, rightPaddingPx = 10;
+                var searchPanel = new Panel { Size = new Size(S(searchWidth), searchHeightPx), BackColor = Raised, Margin = Padding.Empty };
+                var icon = new Label { Text = "\uE721", Location = new Point(-6, 2), Size = new Size(dividerLeftPx, searchHeightPx), ForeColor = MainText, BackColor = Raised, Font = new Font("Segoe Fluent Icons", 14), TextAlign = ContentAlignment.MiddleCenter };
+                var divider = new Panel { Location = new Point(dividerLeftPx, (searchHeightPx - dividerHeightPx) / 2), Size = new Size(1, dividerHeightPx), BackColor = Color.FromArgb(100, 100, 100) };
+                search = new TextBox { Size = new Size(searchPanel.Width - fieldLeftPx - rightPaddingPx, S(23)), BackColor = Raised, ForeColor = MainText, BorderStyle = BorderStyle.None, Font = new Font("Segoe UI", 9), PlaceholderText = L.Pick("Szukaj rozmowy…", "Search conversations…") };
+                search.Location = new Point(fieldLeftPx, Math.Max(0, (searchHeightPx - search.Height) / 2));
+                searchPanel.Controls.Add(icon); searchPanel.Controls.Add(divider); searchPanel.Controls.Add(search);
+                menu.Items.Add(new ToolStripControlHost(searchPanel) { AutoSize = false, Size = searchPanel.Size, Margin = new Padding(S(7), S(6), S(7), S(5)), BackColor = Raised });
+                menu.Items.Add(new ToolStripSeparator());
+                const int arrowHeight = 18;
+                const int rowHeight = 30;
+                var listShell = new Panel { Size = new Size(S(252), S(220)), BackColor = Raised };
+                var viewport = new Panel { Location = Point.Empty, Size = listShell.Size, BackColor = Raised };
+                var up = new Label { Text = "⌃", Height = S(arrowHeight), ForeColor = MainText, BackColor = Raised, Font = new Font("Segoe UI", 10), TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand };
+                var down = new Label { Text = "⌄", Height = S(arrowHeight), ForeColor = MainText, BackColor = Raised, Font = new Font("Segoe UI", 10), TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand };
+                listShell.Controls.Add(viewport); listShell.Controls.Add(up); listShell.Controls.Add(down);
+                menu.Items.Add(new ToolStripControlHost(listShell) { AutoSize = false, Size = listShell.Size, Margin = new Padding(S(7), 0, S(7), 0), BackColor = Raised });
+                int firstVisibleRow = 0;
+                int renderedCapacity = 1;
+                int repeatDirection = 0;
+                var repeatTimer = new System.Windows.Forms.Timer { Interval = 320 };
+                List<int> filteredIndices = [];
+                void StopRepeating() => repeatTimer.Stop();
+                void RenderVisibleRows()
+                {
+                    filteredIndices = Enumerable.Range(0, choices.Length)
+                        .Where(i => string.IsNullOrWhiteSpace(search!.Text) || choices[i].Contains(search.Text, StringComparison.CurrentCultureIgnoreCase))
+                        .ToList();
+                    int rowPixels = S(rowHeight);
+                    int arrowPixels = S(arrowHeight);
+                    int capacityWithoutArrows = Math.Max(1, listShell.Height / rowPixels);
+                    bool needsScrolling = filteredIndices.Count > capacityWithoutArrows;
+                    renderedCapacity = needsScrolling
+                        ? Math.Max(1, (listShell.Height - (2 * arrowPixels)) / rowPixels)
+                        : capacityWithoutArrows;
+                    int maximumFirstRow = Math.Max(0, filteredIndices.Count - renderedCapacity);
+                    firstVisibleRow = Math.Clamp(firstVisibleRow, 0, maximumFirstRow);
+                    bool showUp = firstVisibleRow > 0;
+                    bool showDown = firstVisibleRow < maximumFirstRow;
+                    up.Bounds = new Rectangle(0, 0, listShell.Width, arrowPixels);
+                    down.Bounds = new Rectangle(0, listShell.Height - arrowPixels, listShell.Width, arrowPixels);
+                    viewport.Bounds = new Rectangle(
+                        0,
+                        showUp ? arrowPixels : 0,
+                        listShell.Width,
+                        listShell.Height - (showUp ? arrowPixels : 0) - (showDown ? arrowPixels : 0));
+                    up.Visible = showUp;
+                    down.Visible = showDown;
+                    foreach (Control child in viewport.Controls.Cast<Control>().ToArray()) { viewport.Controls.Remove(child); child.Dispose(); }
+                    int rowsToRender = Math.Min(renderedCapacity, filteredIndices.Count - firstVisibleRow);
+                    for (int row = 0; row < rowsToRender; row++)
+                    {
+                        int index = filteredIndices[firstVisibleRow + row];
+                        var item = new Button { Text = (index == selected ? "✓  " : "    ") + choices[index], Location = new Point(0, row * rowPixels), Size = new Size(viewport.Width, rowPixels), Padding = new Padding(S(5), 0, S(5), 0), FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, ForeColor = MainText, BackColor = Raised, Font = new Font("Segoe UI", 9), TabStop = false };
+                        item.FlatAppearance.BorderSize = 0; item.FlatAppearance.MouseOverBackColor = DarkMenuRenderer.HoverColor;
+                        item.Click += (_, _) => { if (!selectionQueued) { selectionQueued = true; menu.Close(); changed(index); Render(); } };
+                        item.MouseWheel += (_, e) => MoveOne(e.Delta < 0 ? 1 : -1);
+                        viewport.Controls.Add(item);
+                    }
+                }
+                bool CanMove(int direction) => direction < 0 ? firstVisibleRow > 0 : firstVisibleRow + renderedCapacity < filteredIndices.Count;
+                bool MoveOne(int direction)
+                {
+                    if (!CanMove(direction)) { StopRepeating(); return false; }
+                    firstVisibleRow += direction;
+                    RenderVisibleRows();
+                    return true;
+                }
+                void SetArrowHover(Label arrow, bool hovered) => arrow.BackColor = hovered ? DarkMenuRenderer.HoverColor : Raised;
+                void StartRepeating(int direction)
+                {
+                    repeatDirection = direction;
+                    if (!MoveOne(direction) || !CanMove(direction)) return;
+                    repeatTimer.Interval = 320;
+                    repeatTimer.Start();
+                }
+                repeatTimer.Tick += (_, _) =>
+                {
+                    if (!MoveOne(repeatDirection)) return;
+                    repeatTimer.Interval = 90;
+                };
+                foreach (var (arrow, direction) in new[] { (up, -1), (down, 1) })
+                {
+                    arrow.MouseEnter += (_, _) => SetArrowHover(arrow, true);
+                    arrow.MouseLeave += (_, _) => { SetArrowHover(arrow, false); StopRepeating(); };
+                    arrow.MouseDown += (_, e) => { if (e.Button == MouseButtons.Left) StartRepeating(direction); };
+                    arrow.MouseUp += (_, _) => StopRepeating();
+                }
+                menu.Closed += (_, _) => { repeatTimer.Stop(); repeatTimer.Dispose(); };
+                viewport.MouseWheel += (_, e) => MoveOne(e.Delta < 0 ? 1 : -1);
+                search.TextChanged += (_, _) => { firstVisibleRow = 0; RenderVisibleRows(); };
+                RenderVisibleRows();
+                menu.Show(select, new Point(0, select.Height));
+                search.Focus();
+                return;
+            }
+            PopulateChoices();
             menu.Show(select, new Point(0, select.Height));
+            if (search != null) search.Focus();
         };
+        var arrow = new Label { Text = "▾", Location = new Point(select.Width - S(28) - 1, 1), Size = new Size(S(28), select.Height - 2), BackColor = Raised, ForeColor = MainText, Font = new Font("Segoe UI", 8.5f), TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand };
+        void UpdateSelectHover()
+        {
+            bool hovered = select.RectangleToScreen(select.ClientRectangle).Contains(Cursor.Position);
+            select.BackColor = hovered ? DarkMenuRenderer.HoverColor : Raised;
+            arrow.BackColor = hovered ? DarkMenuRenderer.HoverColor : Raised;
+        }
+        select.MouseEnter += (_, _) => UpdateSelectHover();
+        select.MouseLeave += (_, _) => UpdateSelectHover();
+        arrow.MouseEnter += (_, _) => UpdateSelectHover();
+        arrow.MouseLeave += (_, _) => UpdateSelectHover();
+        arrow.MouseDown += (_, _) => { UpdateSelectHover(); CloseOpenMenu(); };
+        arrow.Click += (_, _) => select.PerformClick();
+        select.Controls.Add(arrow);
         body.Controls.Add(select); return select;
     }
     int RenderChart(int y)
     {
         SelectAt(L.Polish
-            ? new[] { "Godzinowy · ostatnie 24 h", "Dzienny · ostatnie 30 dni", "Tygodniowy · ostatnie 12 tyg.", "Miesięczny · ostatnie 12 mies." }
-            : new[] { "Hourly · last 24 h", "Daily · last 30 days", "Weekly · last 12 weeks", "Monthly · last 12 months" }, chartMode, y, i => chartMode = i);
+            ? new[] { "Wpisy (godzina)", "Wpisy (4 godziny)", "Dzień (24 godz.)", "Tydzień (7 dni)", "Miesiąc (30 dni)" }
+            : new[] { "Entries (hour)", "Entries (4 hours)", "Day (24 hours)", "Week (7 days)", "Month (30 days)" }, chartMode, y, i => chartMode = i, x: 20, width: 137);
+        SelectAt(
+            L.Polish ? new[] { "Tokeny IN", "Tokeny OUT" } : new[] { "Input", "Output" },
+            chartTokenMode,
+            y,
+            i => chartTokenMode = i,
+            x: 163,
+            width: 137);
+        y += 33;
+        var conversations = new[] { L.Pick("Wszystkie rozmowy", "All conversations") }
+            .Concat(local?.Prompts.Select(x => string.IsNullOrWhiteSpace(x.Conversation) ? L.LocalConversation : x.Conversation).Distinct().OrderBy(x => x) ?? Enumerable.Empty<string>())
+            .ToArray();
+        int selectedConversation = Math.Max(0, Array.IndexOf(conversations, chartConversationFilter));
+        if (selectedConversation == 0 && chartConversationFilter.Length > 0) chartConversationFilter = "";
+        SelectAt(conversations, selectedConversation, y, i => chartConversationFilter = i == 0 ? "" : conversations[i], searchable: true);
         y += 33;
         var points = ChartPoints();
-        if (chartMode == 0 && local == null)
+        if (local == null)
             TextAt(localBusy ? L.Pick("Odczytywanie historii…", "Reading history…") : L.Pick("Brak lokalnych danych", "No local data"), 20, y, 280, 150, 9, Color.Gray);
-        else body.Controls.Add(new UsageChart(points) { Location = new Point(S(20), S(y)), Size = new Size(S(280), S(150)), BackColor = BackColor });
+        else body.Controls.Add(new UsageChart(points, selected => ShowPrompt(selected, 0)) { Location = new Point(S(20), S(y)), Size = new Size(S(280), S(150)), BackColor = BackColor });
         y += 155;
-        var caption = TextAt(chartMode == 0 ? L.Pick("Lokalnie · czas Windows", "Local · Windows time") : L.Pick("Konto · kreska = brak danych", "Account · dash = no data"), 20, y, 280, 21, 8, Color.Gray);
-        tips.SetToolTip(caption, chartMode == 0 ? L.Pick("Tokeny z zapisanych lokalnie sesji, również pomocniczych. Pozostałe urządzenia nie są uwzględnione. Najedź na punkt, aby zobaczyć liczbę.", "Tokens from locally stored sessions, including helper sessions. Other devices are not included. Hover a point to see its value.") : L.Pick("Dni według serwera. Tygodnie od poniedziałku, miesiące kalendarzowe. Niepełne okresy zawierają tylko dostępne dni — szczegóły po najechaniu.", "Days come from the server. Weeks start Monday and months are calendar months. Incomplete periods include only available days — hover for details."));
+        TextAt(L.Pick("Lokalnie · czas Windows", "Local · Windows time"), 20, y, 280, 21, 8, Color.Gray);
         return y + 28;
     }
     List<ChartBucket> ChartPoints()
     {
         var points = new List<ChartBucket>();
-        if (chartMode == 0)
+        TimeSpan range = chartMode switch
         {
-            var now = DateTimeOffset.UtcNow;
-            var hour = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, 0, 0, TimeSpan.Zero);
-            for (int i = 23; i >= 0; i--)
+            0 => TimeSpan.FromHours(1),
+            1 => TimeSpan.FromHours(4),
+            2 => TimeSpan.FromHours(24),
+            3 => TimeSpan.FromDays(7),
+            _ => TimeSpan.FromDays(30)
+        };
+        var from = DateTimeOffset.UtcNow - range;
+        if (local != null)
+        {
+            var promptsBySession = local.Prompts.Where(x => !string.IsNullOrWhiteSpace(x.SessionId)).GroupBy(x => x.SessionId).ToDictionary(group => group.Key, group => group.OrderBy(x => x.At).ToList());
+            foreach (var sample in local.Samples.Where(x => x.At >= from).OrderBy(x => x.At))
             {
-                var start = hour.AddHours(-i); var end = start.AddHours(1);
-                long? total = local == null ? null : local.Samples.Where(x => x.At >= start && x.At < end).Sum(x => x.Tokens);
-                string label = start.ToLocalTime().ToString("HH:mm");
-                points.Add(new ChartBucket(label, total, start.ToLocalTime().ToString("g", L.Culture) + " · " + (total.HasValue ? Number(total.Value) : L.NoData) + L.Pick(" tokenów lokalnie", " local tokens")));
+                var localTime = sample.At.ToLocalTime();
+                PromptUsage? prompt = promptsBySession.TryGetValue(sample.SessionId, out var sessionPrompts) ? sessionPrompts.LastOrDefault(x => x.At <= sample.At) ?? sessionPrompts.FirstOrDefault() : null;
+                string conversation = string.IsNullOrWhiteSpace(prompt?.Conversation) ? L.LocalConversation : prompt.Conversation;
+                if (chartConversationFilter.Length > 0 && !string.Equals(chartConversationFilter, conversation, StringComparison.Ordinal)) continue;
+                string model = string.IsNullOrWhiteSpace(prompt?.Model) ? L.Pick("niedostępny", "unavailable") : prompt.Model;
+                string effort = L.Thinking(prompt?.ReasoningEffort ?? "");
+                string request = string.IsNullOrWhiteSpace(prompt?.Text) ? L.NoData : string.Join(" ", prompt.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+                if (request.Length > 36) request = request[..36] + "…";
+                long tokens = chartTokenMode == 0 ? sample.InputTokens : sample.OutputTokens;
+                string tokenKind = chartTokenMode == 0 ? L.Pick("Tokeny IN", "Input tokens") : L.Pick("Tokeny OUT", "Output tokens");
+                string order = prompt?.ConversationIndex > 0 ? $"[{prompt.ConversationIndex}] " : "";
+                string detail = string.Join("\n", L.Pick("Rozmowa: ", "Conversation: ") + order + conversation, L.Pick("Model: ", "Model: ") + model + " · " + effort, L.Pick("Zapytanie: ", "Prompt: ") + request, L.Pick("Data i godzina: ", "Date and time: ") + localTime.ToString("dd.MM.yyyy · HH:mm:ss", L.Culture), tokenKind + ": " + Number(tokens));
+                points.Add(new ChartBucket(localTime.ToString(range.TotalHours <= 24 ? "HH:mm" : "dd.MM"), tokens, detail, sample.At, conversation, prompt, tokenKind, sample.InputTokens, sample.OutputTokens));
             }
-            return points;
         }
-        var days = new Dictionary<DateTime, long>();
-        if (current?["usage"]?["dailyUsageBuckets"] is JsonArray daily)
-            foreach (var item in daily)
-                if (DateTime.TryParseExact(item?["startDate"]?.ToString(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day) && item?["tokens"] is JsonNode value) days[day] = value.GetValue<long>();
-        DateTime today = DateTime.Today;
-        int count = chartMode == 1 ? 30 : 12;
-        var anchor = chartMode == 2 ? today.AddDays(-((int)today.DayOfWeek + 6) % 7) : chartMode == 3 ? new DateTime(today.Year, today.Month, 1) : today;
-        for (int i = count - 1; i >= 0; i--)
-        {
-            var start = chartMode == 3 ? anchor.AddMonths(-i) : anchor.AddDays(-i * (chartMode == 2 ? 7 : 1));
-            var end = chartMode == 3 ? start.AddMonths(1) : start.AddDays(chartMode == 2 ? 7 : 1);
-            var available = days.Where(x => x.Key >= start && x.Key < end).ToList();
-            long? tokens = available.Count == 0 ? null : available.Sum(x => x.Value);
-            int expected = (int)(end - start).TotalDays;
-            string label = start.ToString(chartMode == 3 ? "MM.yy" : "dd.MM");
-            string detail = start.ToString("dd.MM.yyyy") + (chartMode == 1 ? "" : " – " + end.AddDays(-1).ToString("dd.MM.yyyy"));
-            detail += tokens.HasValue ? "\n" + Number(tokens.Value) + L.Pick(" tokenów", " tokens") : "\n" + L.Pick("Brak danych", "No data");
-            if (chartMode != 1) detail += L.Pick($"\nDostępne dni: {available.Count}/{expected}", $"\nAvailable days: {available.Count}/{expected}");
-            points.Add(new ChartBucket(label, tokens, detail));
-        }
+        if (points.Count == 0) points.Add(new ChartBucket("", null, L.NoData));
         return points;
     }
     int RenderPromptHistory(int y)
@@ -935,7 +1240,7 @@ class MeterForm : Form
             if (localError != null) tips.SetToolTip(label, localError);
             return y + 35;
         }
-        const int rowContentHeight = 101;
+        const int rowContentHeight = 137;
         const int rowGap = 8;
         const int rowHeight = rowContentHeight + rowGap;
         var list = new Panel { Location = new Point(S(17), S(y)), Size = new Size(S(286), S(prompts.Count * rowHeight)) };
@@ -951,12 +1256,19 @@ class MeterForm : Form
             var itemFont = new Font("Segoe UI", 7.3f);
             Label Field(string text, int top) => new() { Text = text, Location = new Point(S(4), S(top)), Size = new Size(S(74), S(17)), Font = new Font("Segoe UI", 7.3f, FontStyle.Bold), ForeColor = MutedText };
             Label Value(string text, int top, Color? color = null) => new() { Text = text, Location = new Point(S(82), S(top)), Size = new Size(S(175), S(17)), Font = itemFont, ForeColor = color ?? ForeColor, AutoEllipsis = true };
-            var context = new ConversationLine("", conversation) { Location = new Point(S(82), S(2)), Size = new Size(S(175), S(17)), ForeColor = ForeColor, Font = new Font("Segoe UI", 7.3f, FontStyle.Bold) };
+            string conversationOrder = prompt.ConversationIndex > 0 ? $"[{prompt.ConversationIndex}] " : "";
+            var context = new ConversationLine("", conversation, conversationOrder) { Location = new Point(S(82), S(2)), Size = new Size(S(175), S(17)), ForeColor = ForeColor, Font = new Font("Segoe UI", 7.3f, FontStyle.Bold) };
             row.Controls.Add(Field(L.Pick("Rozmowa", "Conversation"), 2)); row.Controls.Add(context);
             row.Controls.Add(Field(L.Pick("Model", "Model"), 20)); row.Controls.Add(Value($"{model} · {effort}", 20));
             row.Controls.Add(Field(L.Pick("Zapytanie", "Prompt"), 38)); row.Controls.Add(Value(preview, 38));
             row.Controls.Add(Field(L.Pick("Tokeny IN", "Input tokens"), 57)); row.Controls.Add(Value(UsageChart.Short(prompt.InputTokens), 57, TokenVisuals.Input(prompt.InputTokens)));
             row.Controls.Add(Field(L.Pick("Tokeny OUT", "Output tokens"), 75)); row.Controls.Add(Value(UsageChart.Short(prompt.OutputTokens), 75, TokenVisuals.Output(prompt.OutputTokens)));
+            string flags = PromptFlags.Text(prompt);
+            if (flags.Length > 0)
+            {
+                row.Controls.Add(Field(L.Pick("Flagi", "Flags"), 93));
+                row.Controls.Add(new FlagLine(PromptFlags.Items(prompt)) { Location = new Point(S(82), S(93)), Size = new Size(S(175), S(34)), ForeColor = ForeColor, Font = new Font("Segoe UI", 6.8f) });
+            }
             string occurredAt = prompt.At.ToLocalTime().ToString("dd.MM.yyyy · HH:mm", L.Culture);
             foreach (Control control in row.Controls.Cast<Control>().Append(row))
             {
@@ -972,58 +1284,6 @@ class MeterForm : Form
     }
     void ShowPrompt(PromptUsage prompt, int rank)
     {
-        using var dialog = CreatePromptDialog(prompt, rank);
-        dialog.ShowDialog(this);
-    }
-    Form CreatePromptDialog(PromptUsage prompt, int rank)
-    {
-        string compactTitle = string.Join(" ", prompt.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        string dialogTitle = string.IsNullOrWhiteSpace(compactTitle)
-            ? $"{L.Pick("Szczegóły promptu", "Prompt details")} {rank}"
-            : (compactTitle.Length <= 54 ? compactTitle : compactTitle[..54] + "…");
-        var dialog = new Form
-        {
-            Text = dialogTitle,
-            ClientSize = new Size(S(470), S(330)),
-            MinimumSize = new Size(S(340), S(230)),
-            BackColor = Surface,
-            ForeColor = MainText,
-            ShowInTaskbar = false,
-            StartPosition = FormStartPosition.CenterParent,
-            MaximizeBox = false,
-            MinimizeBox = false,
-            FormBorderStyle = FormBorderStyle.None,
-            Font = new Font("Segoe UI", 10),
-            AutoScaleMode = AutoScaleMode.None
-        };
-        string conversation = string.IsNullOrWhiteSpace(prompt.Conversation) ? L.LocalConversation : prompt.Conversation;
-        string model = string.IsNullOrWhiteSpace(prompt.Model) ? L.Pick("niedostępny", "unavailable") : prompt.Model;
-        string effort = L.Thinking(prompt.ReasoningEffort);
-        var titleBar = new Panel { Dock = DockStyle.Top, Height = S(36), BackColor = Surface };
-        var title = new Label { Text = dialog.Text, Location = new Point(S(14), 0), Size = new Size(S(400), S(36)), TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", 10, FontStyle.Bold), ForeColor = MainText };
-        var close = new Button { Text = "X", Dock = DockStyle.Right, Width = S(42), FlatStyle = FlatStyle.Flat, BackColor = Raised, ForeColor = MainText, Font = new Font("Segoe UI", 8), TabStop = false };
-        close.FlatAppearance.BorderSize = 0; close.FlatAppearance.MouseOverBackColor = Color.FromArgb(196, 43, 28); close.FlatAppearance.MouseDownBackColor = Color.FromArgb(153, 30, 22);
-        close.Click += (_, _) => dialog.Close();
-        void Drag(object? sender, MouseEventArgs e) { if (e.Button == MouseButtons.Left) { ReleaseCapture(); SendMessage(dialog.Handle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero); } }
-        titleBar.MouseDown += Drag; title.MouseDown += Drag;
-        titleBar.Controls.Add(title); titleBar.Controls.Add(close);
-
-        var fields = new TableLayoutPanel { Dock = DockStyle.Top, Height = S(119), Padding = new Padding(S(12), S(5), S(12), 0), ColumnCount = 2, RowCount = 4 };
-        fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(84))); fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (int row = 0; row < 4; row++) fields.RowStyles.Add(new RowStyle(SizeType.Absolute, S(27)));
-        var fieldColor = Color.FromArgb(170, 170, 170);
-        Label Field(string value) => new() { Text = value, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = fieldColor, TextAlign = ContentAlignment.MiddleLeft };
-        Label Value(string value, Color? color = null) => new() { Text = value, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 8.5f), ForeColor = color ?? MainText, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
-        var dialogConversation = new ConversationLine("", conversation) { Dock = DockStyle.Fill, ForeColor = MainText, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold) };
-        fields.Controls.Add(Field(L.Pick("Rozmowa", "Conversation")), 0, 0); fields.Controls.Add(dialogConversation, 1, 0);
-        fields.Controls.Add(Field(L.Pick("Model", "Model")), 0, 1); fields.Controls.Add(Value($"{model} · {effort}"), 1, 1);
-        fields.Controls.Add(Field(L.Pick("Tokeny IN", "Input tokens")), 0, 2); fields.Controls.Add(Value(Number(prompt.InputTokens), TokenVisuals.Input(prompt.InputTokens)), 1, 2);
-        fields.Controls.Add(Field(L.Pick("Tokeny OUT", "Output tokens")), 0, 3); fields.Controls.Add(Value(Number(prompt.OutputTokens), TokenVisuals.Output(prompt.OutputTokens)), 1, 3);
-        var divider = new Panel { Dock = DockStyle.Top, Height = S(1), Margin = new Padding(S(12), 0, S(12), 0), BackColor = Color.FromArgb(78, 78, 78) };
-        var text = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.None, BorderStyle = BorderStyle.None, BackColor = Surface, ForeColor = MainText, Font = new Font("Segoe UI", 9), Text = prompt.Text.Replace("\r\n", "\n").Replace("\n", Environment.NewLine) };
-        var holder = new Panel { Dock = DockStyle.Fill, Padding = new Padding(S(12), S(10), S(12), S(12)), BackColor = Surface }; holder.Controls.Add(text);
-        dialog.Controls.Add(holder); dialog.Controls.Add(divider); dialog.Controls.Add(fields); dialog.Controls.Add(titleBar);
-        dialog.Shown += (_, _) => { text.SelectionStart = 0; text.SelectionLength = 0; };
-        return dialog;
+        CompletionPopup.Display(prompt);
     }
 }
