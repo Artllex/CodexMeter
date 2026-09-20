@@ -4,7 +4,9 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
-const edge = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
+const browserExecutable = fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
+  ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+  : 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 const output = path.join(root, 'artifacts', 'store-assets');
 fs.mkdirSync(output, { recursive: true });
 
@@ -13,6 +15,18 @@ html = html
   .replace("const language=(navigator.languages?.[0]||navigator.language||'en').toLowerCase().startsWith('pl')?'pl':'en';",
     "const language=(new URLSearchParams(location.search).get('lang')||((navigator.languages?.[0]||navigator.language||'en').toLowerCase().startsWith('pl')?'pl':'en'));" )
   .replace('https://codexmeter.local/data.json', '/data.json');
+
+// The widget host draws the title row outside the WebView. Recreate that row
+// for Store artwork so the screenshot matches what customers actually see.
+html = html
+  .replace('</style>', `
+  .store-header { position:absolute; inset:16px 18px auto; z-index:2; display:flex; align-items:center; height:24px; color:var(--fg); }
+  .store-header img { width:19px; height:19px; margin-right:9px; object-fit:contain; }
+  .store-header strong { font-size:15px; line-height:1; font-weight:500; }
+  .store-header span { margin-left:auto; font-size:21px; line-height:1; letter-spacing:2px; transform:translateY(-3px); }
+  </style>`)
+  .replace('<main class="widget-surface">', `<main class="widget-surface">
+  <header class="store-header"><img src="/icon.png" alt=""><strong>Codex Meter</strong><span aria-hidden="true">•••</span></header>`);
 
 const now = Date.now();
 const buckets = Array.from({ length: 24 }, (_, index) => ({
@@ -28,6 +42,9 @@ const server = http.createServer((request, response) => {
   if (request.url.startsWith('/data.json')) {
     response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     response.end(data);
+  } else if (request.url.startsWith('/icon.png')) {
+    response.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
+    response.end(fs.readFileSync(path.join(root, 'src', 'WidgetPackage', 'ProviderAssets', 'CodexMeter_Icon.png')));
   } else {
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     response.end(html);
@@ -37,8 +54,8 @@ const server = http.createServer((request, response) => {
 function capture(port, language) {
   return new Promise((resolve, reject) => {
     const target = path.join(output, `CodexMeter-${language.toUpperCase()}-1600x2200.png`);
-    const profile = path.join(output, `edge-${language}`);
-    const child = spawn(edge, [
+    const profile = path.join(output, `edge-${language}-${process.pid}`);
+    const child = spawn(browserExecutable, [
       '--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-dark-mode', '--force-device-scale-factor=2',
       `--user-data-dir=${profile}`, '--window-size=800,1100',
       `--screenshot=${target}`, `http://127.0.0.1:${port}/?lang=${language}`

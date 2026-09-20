@@ -10,7 +10,13 @@ class PromptUsage
     public DateTimeOffset At { get; set; }
     public string Text { get; set; } = "";
     public long Tokens { get; set; }
+    public long InputTokens { get; set; }
+    public long OutputTokens { get; set; }
     public bool Complete { get; set; }
+    public string SessionId { get; set; } = "";
+    public string Conversation { get; set; } = "";
+    public string Model { get; set; } = "";
+    public string ReasoningEffort { get; set; } = "";
 }
 record LocalUsage(List<TokenSample> Samples, List<PromptUsage> Prompts, int Files, int Errors);
 
@@ -23,6 +29,7 @@ static class Analytics
     {
         var home = Environment.GetEnvironmentVariable("CODEX_HOME");
         if (string.IsNullOrEmpty(home)) home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+        var conversationNames = ReadConversationNames(home);
         var results = new List<LocalUsage>();
         int errors = 0;
         foreach (var dir in new[] { Path.Combine(home, "sessions"), Path.Combine(home, "archived_sessions") })
@@ -44,20 +51,47 @@ static class Analytics
                 catch (UnauthorizedAccessException) { errors++; }
             }
         }
-        return new LocalUsage(results.SelectMany(x => x.Samples).DistinctBy(x => x.Key).OrderBy(x => x.At).ToList(), results.SelectMany(x => x.Prompts).GroupBy(x => x.Key).Select(g => g.OrderByDescending(x => x.Tokens).First()).ToList(), results.Count, errors + results.Sum(x => x.Errors));
+        var prompts = results.SelectMany(x => x.Prompts).GroupBy(x => x.Key).Select(g => g.OrderByDescending(x => x.Tokens).First()).ToList();
+        foreach (var prompt in prompts)
+            if (conversationNames.TryGetValue(prompt.SessionId, out var title)) prompt.Conversation = title;
+        return new LocalUsage(results.SelectMany(x => x.Samples).DistinctBy(x => x.Key).OrderBy(x => x.At).ToList(), prompts, results.Count, errors + results.Sum(x => x.Errors));
+    }
+    static Dictionary<string, string> ReadConversationNames(string home)
+    {
+        var names = new Dictionary<string, string>();
+        string path = Path.Combine(home, "session_index.jsonl");
+        if (!File.Exists(path)) return names;
+        try
+        {
+            foreach (string line in File.ReadLines(path))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    string id = Str(doc.RootElement, "id"), title = Str(doc.RootElement, "thread_name");
+                    if (id.Length > 0 && title.Length > 0) names[id] = title;
+                }
+                catch (JsonException) { }
+            }
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        return names;
     }
     internal static LocalUsage Parse(string file)
     {
         var samples = new List<TokenSample>(); var prompts = new List<PromptUsage>();
         var session = file; bool root = true; DateTimeOffset created = DateTimeOffset.MinValue;
-        long previous = 0; bool seen = false; string turn = ""; PromptUsage? active = null;
+        string conversation = "", model = "", reasoningEffort = "";
+        long previous = 0, previousInput = 0, previousOutput = 0;
+        bool seen = false; string turn = ""; PromptUsage? active = null;
         var texts = new HashSet<string>(); int errors = 0;
         using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         using var reader = new StreamReader(stream);
         string? line;
         while ((line = reader.ReadLine()) != null)
         {
-            if (!(line.Contains("session_meta") || line.Contains("token_count") || line.Contains("task_started") || line.Contains("task_complete") || line.Contains("user_message") || (line.Contains("response_item") && line.Contains("\"user\"")))) continue;
+            if (!(line.Contains("session_meta") || line.Contains("thread_settings_applied") || line.Contains("turn_context") || line.Contains("token_count") || line.Contains("task_started") || line.Contains("task_complete") || line.Contains("user_message") || (line.Contains("response_item") && line.Contains("\"user\"")))) continue;
             try
             {
                 using var doc = JsonDocument.Parse(line); var e = doc.RootElement;
@@ -68,20 +102,48 @@ static class Analytics
                     session = Str(p, "id");
                     root = !p.TryGetProperty("source", out var source) || source.ValueKind == JsonValueKind.String;
                     DateTimeOffset.TryParse(Str(p, "timestamp"), out created);
+                    conversation = Str(p, "title");
+                    continue;
+                }
+                if (type == "turn_context")
+                {
+                    model = Str(p, "model");
+                    reasoningEffort = Str(p, "effort");
+                    if (reasoningEffort.Length == 0) reasoningEffort = Str(p, "reasoning_effort");
                     continue;
                 }
                 if (!DateTimeOffset.TryParse(Str(e, "timestamp"), out var at)) continue;
                 string kind = Str(p, "type");
+                if (type == "event_msg" && kind == "thread_settings_applied")
+                {
+                    if (p.TryGetProperty("thread_settings", out var settings) && settings.ValueKind == JsonValueKind.Object)
+                    {
+                        model = Str(settings, "model");
+                        reasoningEffort = Str(settings, "reasoning_effort");
+                    }
+                    continue;
+                }
                 if (type == "event_msg" && kind == "token_count")
                 {
                     if (!p.TryGetProperty("info", out var info) || info.ValueKind != JsonValueKind.Object || !info.TryGetProperty("total_token_usage", out var total)) continue;
                     long cumulative = Num(total, "total_tokens");
                     long last = info.TryGetProperty("last_token_usage", out var lastUsage) ? Num(lastUsage, "total_tokens") : 0;
+                    long cumulativeInput = Num(total, "input_tokens");
+                    long cumulativeOutput = Num(total, "output_tokens");
+                    long lastInput = info.TryGetProperty("last_token_usage", out lastUsage) ? Num(lastUsage, "input_tokens") : 0;
+                    long lastOutput = info.TryGetProperty("last_token_usage", out lastUsage) ? Num(lastUsage, "output_tokens") : 0;
                     long delta = !seen ? Math.Min(cumulative, last) : cumulative >= previous ? cumulative - previous : Math.Min(cumulative, last);
-                    previous = cumulative; seen = true;
+                    long deltaInput = !seen ? Math.Min(cumulativeInput, lastInput) : cumulativeInput >= previousInput ? cumulativeInput - previousInput : Math.Min(cumulativeInput, lastInput);
+                    long deltaOutput = !seen ? Math.Min(cumulativeOutput, lastOutput) : cumulativeOutput >= previousOutput ? cumulativeOutput - previousOutput : Math.Min(cumulativeOutput, lastOutput);
+                    previous = cumulative; previousInput = cumulativeInput; previousOutput = cumulativeOutput; seen = true;
                     if (at < created || delta <= 0) continue;
                     samples.Add(new TokenSample(session + ":" + at.ToString("O") + ":" + cumulative, at, delta));
-                    if (active != null) active.Tokens += delta;
+                    if (active != null)
+                    {
+                        active.Tokens += delta;
+                        active.InputTokens += Math.Max(0, deltaInput);
+                        active.OutputTokens += Math.Max(0, deltaOutput);
+                    }
                     continue;
                 }
                 if (at < created) continue;
@@ -103,7 +165,17 @@ static class Analytics
                 if (text.Length == 0 || !texts.Add(text)) continue;
                 if (active == null)
                 {
-                    active = new PromptUsage { Key = session + ":" + (turn.Length > 0 ? turn : at.ToString("O")), At = at, Text = text };
+                    if (conversation.Length == 0) conversation = ConversationFallback(text);
+                    active = new PromptUsage
+                    {
+                        Key = session + ":" + (turn.Length > 0 ? turn : at.ToString("O")),
+                        At = at,
+                        Text = text,
+                        SessionId = session,
+                        Conversation = conversation,
+                        Model = model,
+                        ReasoningEffort = reasoningEffort
+                    };
                     prompts.Add(active);
                 }
                 else active.Text += "\n\n— Doprecyzowanie —\n" + text;
@@ -111,6 +183,11 @@ static class Analytics
             catch (JsonException) { errors++; }
         }
         return new LocalUsage(samples, prompts.Where(x => x.Tokens > 0).ToList(), 1, errors);
+    }
+    static string ConversationFallback(string text)
+    {
+        string compact = string.Join(" ", text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return compact.Length <= 36 ? compact : compact[..36] + "…";
     }
     static string Clean(string text)
     {
@@ -135,19 +212,20 @@ static class Analytics
         var lines = new List<string>();
         void Add(string type, object payload, string at = "2026-09-06T10:00:00Z") => lines.Add(JsonSerializer.Serialize(new { timestamp = at, type, payload }));
         Add("session_meta", new { id = "test", source = "vscode", timestamp = "2026-09-06T09:00:00Z" });
+        Add("event_msg", new { type = "thread_settings_applied", thread_settings = new { model = "gpt-test", reasoning_effort = "high" } });
         Add("event_msg", new { type = "task_started", turn_id = "a" });
         Add("response_item", new { role = "user", content = new[] { new { text = "Pierwszy prompt" } } });
-        void Tokens(long total, long last, string at) => Add("event_msg", new { type = "token_count", info = new { total_token_usage = new { total_tokens = total }, last_token_usage = new { total_tokens = last } } }, at);
-        Tokens(100, 100, "2026-09-06T10:00:01Z"); Tokens(100, 100, "2026-09-06T10:00:02Z"); Tokens(150, 50, "2026-09-06T10:00:03Z");
+        void Tokens(long total, long last, long input, long output, string at) => Add("event_msg", new { type = "token_count", info = new { total_token_usage = new { total_tokens = total, input_tokens = input, output_tokens = output }, last_token_usage = new { total_tokens = last, input_tokens = Math.Min(input, last), output_tokens = Math.Min(output, last) } } }, at);
+        Tokens(100, 100, 80, 20, "2026-09-06T10:00:01Z"); Tokens(100, 100, 80, 20, "2026-09-06T10:00:02Z"); Tokens(150, 50, 120, 30, "2026-09-06T10:00:03Z");
         Add("event_msg", new { type = "task_complete" });
         Add("event_msg", new { type = "task_started", turn_id = "b" });
         Add("event_msg", new { type = "user_message", message = "Drugi prompt" });
         Add("response_item", new { role = "user", content = new[] { new { text = "Drugi prompt" } } });
-        Tokens(175, 25, "2026-09-06T10:01:01Z");
+        Tokens(175, 25, 138, 37, "2026-09-06T10:01:01Z");
         File.WriteAllLines(path, lines.Append("{partial"));
         var result = Parse(path);
-        if (result.Samples.Sum(x => x.Tokens) != 175 || result.Prompts.Count != 2 || result.Prompts[0].Tokens != 150 || result.Prompts[1].Tokens != 25 || result.Prompts[1].Text != "Drugi prompt") throw new Exception("Błąd sumowania tokenów lub przypisania promptu.");
-        return "PASS: deltas, duplicate counters, prompt boundaries and duplicate messages";
+        if (result.Samples.Sum(x => x.Tokens) != 175 || result.Prompts.Count != 2 || result.Prompts[0].Tokens != 150 || result.Prompts[0].InputTokens != 120 || result.Prompts[0].OutputTokens != 30 || result.Prompts[1].Tokens != 25 || result.Prompts[1].Text != "Drugi prompt" || result.Prompts[0].Model != "gpt-test" || result.Prompts[0].ReasoningEffort != "high") throw new Exception("Błąd sumowania tokenów lub metadanych promptu.");
+        return "PASS: deltas, duplicate counters, prompt boundaries and prompt metadata";
     }
 }
 
@@ -170,30 +248,142 @@ class UsageChart : Control
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e); var g = e.Graphics;
-        using var dim = new SolidBrush(Color.FromArgb(180, 180, 180)); using var ink = new SolidBrush(Color.FromArgb(16, 163, 127));
-        using var missing = new Pen(Color.FromArgb(85, 90, 100)); using var line = new Pen(Color.FromArgb(48, 53, 62));
+        using var dim = new SolidBrush(Color.FromArgb(180, 180, 180)); using var ink = new SolidBrush(Color.FromArgb(77, 183, 229));
+        using var missing = new Pen(Color.FromArgb(85, 90, 100)); using var grid = new Pen(Color.FromArgb(72, 72, 72));
+        using var series = new Pen(Color.FromArgb(77, 183, 229), 2.5f) { LineJoin = System.Drawing.Drawing2D.LineJoin.Round, StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
         using var font = new Font("Segoe UI", 8);
         long max = Math.Max(1, buckets.Max(x => x.Tokens ?? 0));
-        g.DrawString(Short(max) + " tokenów", font, dim, 0, 0);
-        int baseline = Height - 24; float chartHeight = Math.Max(1, Height - 50);
-        g.DrawLine(line, 0, baseline, Width, baseline);
-        float step = (Width - 4f) / Math.Max(1, buckets.Count);
+        var axisLabels = Enumerable.Range(0, 5)
+            .Select(level => Short((long)Math.Round(max * (4 - level) / 4.0)))
+            .ToArray();
+        // GDI text widths change with the system's DPI. Measure the actual labels
+        // instead of relying on a fixed margin.
+        int left = (int)Math.Ceiling(axisLabels.Max(label => g.MeasureString(label, font).Width)) + 12;
+        // Keep the X-axis labels inside the drawing area at high DPI as well.
+        int right = 8, top = 10, baseline = Height - 42;
+        float chartWidth = Math.Max(1, Width - left - right), chartHeight = Math.Max(1, baseline - top);
+        for (int level = 0; level <= 4; level++)
+        {
+            float y = top + chartHeight * level / 4f;
+            g.DrawLine(grid, left, y, Width - right, y);
+            string label = axisLabels[level];
+            g.DrawString(label, font, dim, left - g.MeasureString(label, font).Width - 5, y - 7);
+        }
+        var points = new PointF?[buckets.Count];
         for (int i = 0; i < buckets.Count; i++)
         {
-            float x = 2 + i * step, width = Math.Max(2, step - 3);
+            float x = left + (buckets.Count <= 1 ? chartWidth / 2 : chartWidth * i / (buckets.Count - 1));
             if (buckets[i].Tokens is long value)
             {
-                float height = chartHeight * value / max;
-                if (height > 0) g.FillRectangle(ink, x, baseline - height, width, height);
+                float y = baseline - chartHeight * value / max;
+                points[i] = new PointF(x, y);
             }
-            else { g.DrawLine(missing, x, baseline - 2, x + width, baseline - 6); }
+            else g.DrawLine(missing, x - 3, baseline - 2, x + 3, baseline - 6);
+        }
+        PointF? previous = null;
+        foreach (var point in points)
+        {
+            if (point.HasValue)
+            {
+                if (previous.HasValue) g.DrawLine(series, previous.Value, point.Value);
+                g.FillEllipse(ink, point.Value.X - 2.5f, point.Value.Y - 2.5f, 5, 5);
+            }
+            previous = point;
         }
         if (buckets.Count > 0)
         {
-            g.DrawString(buckets[0].Label, font, dim, 0, baseline + 5);
-            string last = buckets[^1].Label; g.DrawString(last, font, dim, Width - g.MeasureString(last, font).Width, baseline + 5);
+            g.DrawString(buckets[0].Label, font, dim, left, baseline + 6);
+            string last = buckets[^1].Label;
+            g.DrawString(last, font, dim, Width - right - g.MeasureString(last, font).Width, baseline + 6);
         }
     }
     public static string Short(long n) => n >= 1000000 ? $"{n / 1000000.0:0.#} mln" : n >= 1000 ? $"{n / 1000.0:0.#} tys." : n.ToString();
     protected override void Dispose(bool disposing) { if (disposing) tip.Dispose(); base.Dispose(disposing); }
+}
+
+class ConversationLine : Control
+{
+    readonly string time;
+    readonly string title;
+    readonly List<string> icons = new();
+
+    public ConversationLine(string time, string conversation)
+    {
+        this.time = time;
+        title = ExtractIcons(conversation);
+        DoubleBuffered = true;
+        Font = new Font("Segoe UI", 7.3f);
+    }
+
+    string ExtractIcons(string text)
+    {
+        string remaining = text.TrimStart();
+        while (true)
+        {
+            string? found = new[] { "✅", "🐙", "Ⓧ", "🚀" }.FirstOrDefault(icon => remaining.StartsWith(icon, StringComparison.Ordinal));
+            if (found == null) return remaining;
+            icons.Add(found);
+            remaining = remaining[found.Length..].TrimStart();
+        }
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        var g = e.Graphics;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        string prefix = time + " ·";
+        var prefixSize = TextRenderer.MeasureText(g, prefix, Font, Size.Empty, TextFormatFlags.NoPadding);
+        int y = Math.Max(0, (Height - prefixSize.Height) / 2);
+        TextRenderer.DrawText(g, prefix, Font, new Point(0, y), ForeColor, TextFormatFlags.NoPadding);
+        int iconSize = Math.Min(Height - 2, Math.Max(14, (int)Math.Round(14 * DeviceDpi / 96f)));
+        int x = prefixSize.Width + 4;
+        foreach (string icon in icons)
+        {
+            DrawIcon(g, icon, new Rectangle(x, Math.Max(0, (Height - iconSize) / 2), iconSize, iconSize));
+            x += iconSize + 3;
+        }
+        TextRenderer.DrawText(g, title, Font, new Rectangle(x, 0, Math.Max(1, Width - x), Height), ForeColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+    }
+
+    static void DrawIcon(Graphics g, string icon, Rectangle r)
+    {
+        float scale = r.Width / 18f;
+        if (icon == "✅")
+        {
+            using var fill = new SolidBrush(Color.FromArgb(64, 190, 125));
+            using var check = new Pen(Color.White, Math.Max(1.8f, 2.1f * scale)) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
+            g.FillRectangle(fill, r);
+            g.DrawLines(check, new[] { new PointF(r.X + 3 * scale, r.Y + 9 * scale), new PointF(r.X + 7 * scale, r.Y + 13 * scale), new PointF(r.X + 15 * scale, r.Y + 4 * scale) });
+        }
+        else if (icon == "🐙")
+        {
+            using var body = new SolidBrush(Color.FromArgb(226, 104, 151));
+            using var eye = new SolidBrush(Color.FromArgb(45, 35, 50));
+            g.FillEllipse(body, r.X + 3 * scale, r.Y + 1 * scale, 12 * scale, 11 * scale);
+            for (int i = 0; i < 4; i++) g.FillEllipse(body, r.X + (1 + i * 4) * scale, r.Y + 9 * scale, 5 * scale, 7 * scale);
+            g.FillEllipse(eye, r.X + 6 * scale, r.Y + 5 * scale, 1.7f * scale, 2 * scale);
+            g.FillEllipse(eye, r.X + 10.5f * scale, r.Y + 5 * scale, 1.7f * scale, 2 * scale);
+        }
+        else if (icon == "Ⓧ")
+        {
+            using var ring = new Pen(Color.FromArgb(205, 210, 216), Math.Max(1.4f, 1.7f * scale));
+            using var cross = new Pen(Color.FromArgb(225, 228, 232), Math.Max(1.3f, 1.6f * scale));
+            g.DrawEllipse(ring, r.X + 1, r.Y + 1, r.Width - 3, r.Height - 3);
+            g.DrawLine(cross, r.X + 5 * scale, r.Y + 5 * scale, r.X + 13 * scale, r.Y + 13 * scale);
+            g.DrawLine(cross, r.X + 13 * scale, r.Y + 5 * scale, r.X + 5 * scale, r.Y + 13 * scale);
+        }
+        else if (icon == "🚀")
+        {
+            using var body = new SolidBrush(Color.FromArgb(220, 225, 232));
+            using var nose = new SolidBrush(Color.FromArgb(238, 87, 87));
+            using var window = new SolidBrush(Color.FromArgb(68, 175, 230));
+            using var flame = new SolidBrush(Color.FromArgb(255, 174, 66));
+            g.FillEllipse(body, r.X + 5 * scale, r.Y + 2 * scale, 9 * scale, 13 * scale);
+            g.FillPie(nose, r.X + 5 * scale, r.Y + 1 * scale, 9 * scale, 8 * scale, 190, 160);
+            g.FillEllipse(window, r.X + 8 * scale, r.Y + 6 * scale, 3.5f * scale, 3.5f * scale);
+            g.FillEllipse(flame, r.X + 7 * scale, r.Y + 13 * scale, 5 * scale, 4 * scale);
+        }
+    }
 }

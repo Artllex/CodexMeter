@@ -11,7 +11,7 @@ if (-not $ProviderDirectory) { $ProviderDirectory = Join-Path $root 'src\Widget\
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $root 'artifacts\store' }
 
 $layout = Join-Path $OutputDirectory 'layout'
-$package = Join-Path $OutputDirectory 'CodexMeterWidget_1.0.1.0_x64.msix'
+$package = Join-Path $OutputDirectory 'CodexMeterWidget_1.0.2.0_x64.msix'
 if (Test-Path $OutputDirectory) { Remove-Item -LiteralPath $OutputDirectory -Recurse -Force }
 New-Item -ItemType Directory -Path $layout,(Join-Path $layout 'Meter'),(Join-Path $layout 'SampleWidgetProviderApp') -Force | Out-Null
 
