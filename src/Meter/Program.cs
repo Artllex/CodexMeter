@@ -133,10 +133,12 @@ sealed class CompletionPopup : Form
 {
     static readonly List<CompletionPopup> Active = new();
     readonly System.Windows.Forms.Timer closeTimer = new() { Interval = 10000 };
+    readonly bool closesAutomatically;
     bool lifetimeElapsed;
 
-    CompletionPopup(PromptUsage prompt)
+    CompletionPopup(PromptUsage prompt, bool closesAutomatically = false)
     {
+        this.closesAutomatically = closesAutomatically;
         using var screenGraphics = Graphics.FromHwnd(IntPtr.Zero);
         float dpiScale = Math.Max(1f, screenGraphics.DpiX / 96f);
         int P(int value) => Math.Max(1, (int)Math.Round(value * dpiScale));
@@ -289,13 +291,13 @@ sealed class CompletionPopup : Form
         SetContentExpanded(false);
         void KeepVisible(object? sender, EventArgs e)
         {
-            if (lifetimeElapsed) closeTimer.Stop();
+            if (closesAutomatically && lifetimeElapsed) closeTimer.Stop();
         }
         void CloseAfterLeave(object? sender, EventArgs e)
         {
             BeginInvoke((Action)(() =>
             {
-                if (lifetimeElapsed && !IsDisposed && !Bounds.Contains(Cursor.Position))
+                if (closesAutomatically && lifetimeElapsed && !IsDisposed && !Bounds.Contains(Cursor.Position))
                 {
                     closeTimer.Interval = 1000;
                     closeTimer.Start();
@@ -339,13 +341,13 @@ sealed class CompletionPopup : Form
         }
     }
 
-    public static void Display(PromptUsage prompt)
+    public static void Display(PromptUsage prompt, bool closeAutomatically = true)
     {
-        var popup = new CompletionPopup(prompt);
+        var popup = new CompletionPopup(prompt, closeAutomatically);
         Active.Add(popup);
         Reposition();
         popup.Show();
-        popup.closeTimer.Start();
+        if (closeAutomatically) popup.closeTimer.Start();
     }
 
     public static void ExportPreview(string path)
@@ -1343,6 +1345,6 @@ class MeterForm : Form
     }
     void ShowPrompt(PromptUsage prompt, int rank)
     {
-        CompletionPopup.Display(prompt);
+        CompletionPopup.Display(prompt, closeAutomatically: false);
     }
 }
