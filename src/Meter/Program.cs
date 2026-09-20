@@ -145,7 +145,7 @@ sealed class CompletionPopup : Form
         var activityFlags = PromptFlags.Items(prompt);
         var statusFlags = PromptFlags.StatusItems(prompt);
         bool hasPromptFlags = activityFlags.Count > 0, hasPromptStatus = statusFlags.Count > 0;
-        int flagsHeight = activityFlags.Count > 12 ? 78 : activityFlags.Count > 6 ? 60 : activityFlags.Count > 3 ? 42 : 24;
+        int flagsHeight = activityFlags.Count > 14 ? 60 : activityFlags.Count > 7 ? 42 : 24;
         int statusHeight = hasPromptStatus ? 24 : 0;
         string projectLocation = prompt.ProjectLocation;
         bool hasProjectLocation = !string.IsNullOrWhiteSpace(projectLocation);
