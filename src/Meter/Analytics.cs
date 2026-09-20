@@ -11,6 +11,7 @@ class PromptUsage
     public string Text { get; set; } = "";
     public string OriginalText { get; set; } = "";
     public string RawParameters { get; set; } = "";
+    public string ProjectLocation { get; set; } = "";
     public long Tokens { get; set; }
     public long InputTokens { get; set; }
     public long OutputTokens { get; set; }
@@ -112,7 +113,7 @@ static class Analytics
     {
         var samples = new List<TokenSample>(); var prompts = new List<PromptUsage>();
         var session = file; bool root = true; DateTimeOffset created = DateTimeOffset.MinValue;
-        string conversation = "", model = "", reasoningEffort = "";
+        string conversation = "", model = "", reasoningEffort = "", projectLocation = "";
         long previous = 0, previousInput = 0, previousOutput = 0;
         bool seen = false; string turn = ""; PromptUsage? active = null;
         var texts = new HashSet<string>(); int errors = 0;
@@ -133,6 +134,8 @@ static class Analytics
                     root = !p.TryGetProperty("source", out var source) || source.ValueKind == JsonValueKind.String;
                     DateTimeOffset.TryParse(Str(p, "timestamp"), out created);
                     conversation = Str(p, "title");
+                    projectLocation = Str(p, "cwd");
+                    if (projectLocation.Length == 0) projectLocation = Str(p, "workdir");
                     continue;
                 }
                 if (type == "turn_context")
@@ -224,6 +227,7 @@ static class Analytics
                         Text = text,
                         OriginalText = Original(attachmentSource),
                         RawParameters = e.GetRawText(),
+                        ProjectLocation = projectLocation,
                         SessionId = session,
                         Conversation = conversation,
                         Model = model,
@@ -325,7 +329,7 @@ static class Analytics
         string path = Path.Combine(directory, "analytics-fixture.jsonl");
         var lines = new List<string>();
         void Add(string type, object payload, string at = "2026-09-06T10:00:00Z") => lines.Add(JsonSerializer.Serialize(new { timestamp = at, type, payload }));
-        Add("session_meta", new { id = "test", source = "vscode", timestamp = "2026-09-06T09:00:00Z" });
+        Add("session_meta", new { id = "test", source = "vscode", timestamp = "2026-09-06T09:00:00Z", cwd = "C:\\CODE\\test-project" });
         Add("event_msg", new { type = "thread_settings_applied", thread_settings = new { model = "gpt-test", reasoning_effort = "high" } });
         Add("event_msg", new { type = "task_started", turn_id = "a" });
         Add("response_item", new { role = "user", content = new[] { new { text = "Pierwszy prompt" } } });
@@ -350,7 +354,7 @@ static class Analytics
         File.WriteAllLines(path, lines.Append("{partial"));
         var result = Parse(path);
         var flagged = result.Prompts[1];
-        if (result.Samples.Sum(x => x.Tokens) != 175 || result.Prompts.Count != 2 || result.Prompts[0].Tokens != 150 || result.Prompts[0].InputTokens != 120 || result.Prompts[0].OutputTokens != 30 || flagged.Tokens != 25 || flagged.Text != "Drugi prompt" || !flagged.OriginalText.Contains("## My request:") || !flagged.RawParameters.Contains("user_message") || flagged.OriginalText.Contains("&#x20;") || result.Prompts[0].Model != "gpt-test" || result.Prompts[0].ReasoningEffort != "high") throw new Exception("Błąd sumowania tokenów lub metadanych promptu.");
+        if (result.Samples.Sum(x => x.Tokens) != 175 || result.Prompts.Count != 2 || result.Prompts[0].Tokens != 150 || result.Prompts[0].InputTokens != 120 || result.Prompts[0].OutputTokens != 30 || flagged.Tokens != 25 || flagged.Text != "Drugi prompt" || !flagged.OriginalText.Contains("## My request:") || !flagged.RawParameters.Contains("user_message") || flagged.ProjectLocation != "C:\\CODE\\test-project" || flagged.OriginalText.Contains("&#x20;") || result.Prompts[0].Model != "gpt-test" || result.Prompts[0].ReasoningEffort != "high") throw new Exception("Błąd sumowania tokenów lub metadanych promptu.");
         if (result.Prompts[0].WorkedOnCode || result.Prompts[0].GitCommit || result.Prompts[0].GeneratedPicture || result.Prompts[0].McpTools.Count > 0) throw new Exception("Tekst wyniku narzędzia został błędnie uznany za wykonaną akcję.");
         if (flagged.PictureCount != 1 || flagged.FileCount != 1 || !flagged.WorkedOnCode || !flagged.TestsRun || !flagged.ProjectBuilt || !flagged.GitCommit || !flagged.GitPush || !flagged.PullRequest || !flagged.PackageBuilt || !flagged.ReleaseCreated || !flagged.GeneratedPicture || !flagged.UsedWeb || !flagged.UsedBrowser || !flagged.DependenciesChanged || !flagged.InstalledSoftware || !flagged.DocumentsChanged || flagged.AgentCount != 1 || !flagged.AutomationChanged || !flagged.Partial || !flagged.McpTools.Contains("figma: get_file")) throw new Exception("Błąd wykrywania flag aktywności promptu.");
         if (PromptContent.Sections("Zwykłe zapytanie").FirstOrDefault()?.Title != "My request") throw new Exception("Zwykłe zapytanie nie trafiło do sekcji My request.");

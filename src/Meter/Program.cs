@@ -147,7 +147,9 @@ sealed class CompletionPopup : Form
         bool hasPromptFlags = activityFlags.Count > 0, hasPromptStatus = statusFlags.Count > 0;
         int flagsHeight = activityFlags.Count > 12 ? 78 : activityFlags.Count > 6 ? 60 : activityFlags.Count > 3 ? 42 : 24;
         int statusHeight = hasPromptStatus ? 24 : 0;
-        int metadataHeight = (hasPromptFlags ? flagsHeight : 0) + statusHeight;
+        string projectLocation = prompt.ProjectLocation;
+        bool hasProjectLocation = !string.IsNullOrWhiteSpace(projectLocation);
+        int metadataHeight = (hasPromptFlags ? flagsHeight : 0) + statusHeight + (hasProjectLocation ? 24 : 0);
         string rawParameters = FormatRawParameters(prompt.RawParameters);
         int parameterLineCount = string.IsNullOrWhiteSpace(rawParameters) ? 0 : rawParameters.Split(Environment.NewLine).Length;
         bool hasParameters = parameterLineCount > 0;
@@ -166,7 +168,7 @@ sealed class CompletionPopup : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 8 + (hasPromptFlags ? 1 : 0) + (hasPromptStatus ? 1 : 0) + (hasParameters ? 2 : 0),
+            RowCount = 8 + (hasPromptFlags ? 1 : 0) + (hasPromptStatus ? 1 : 0) + (hasProjectLocation ? 1 : 0) + (hasParameters ? 2 : 0),
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
@@ -176,6 +178,7 @@ sealed class CompletionPopup : Form
         for (int row = 0; row < 2; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(24)));
         if (hasPromptFlags) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(flagsHeight)));
         if (hasPromptStatus) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(statusHeight)));
+        if (hasProjectLocation) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(24)));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(6)));
         for (int row = 0; row < 2; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(24)));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(6)));
@@ -253,6 +256,7 @@ sealed class CompletionPopup : Form
         int nextMetadataRow = 3;
         int flagsRow = hasPromptFlags ? nextMetadataRow++ : -1;
         int statusRow = hasPromptStatus ? nextMetadataRow++ : -1;
+        int locationRow = hasProjectLocation ? nextMetadataRow++ : -1;
         int separatorRow = nextMetadataRow;
         int inputRow = separatorRow + 1;
         int outputRow = separatorRow + 2;
@@ -272,6 +276,16 @@ sealed class CompletionPopup : Form
         {
             layout.Controls.Add(FieldLabel(L.Pick("Status", "Status")), 0, statusRow);
             layout.Controls.Add(new FlagLine(statusFlags) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = valueColor, Font = new Font("Segoe UI", 7.3f, FontStyle.Bold) }, 1, statusRow);
+        }
+        if (hasProjectLocation)
+        {
+            var locationLink = new LinkLabel { Text = projectLocation, Dock = DockStyle.Fill, Margin = Padding.Empty, Font = itemFont, LinkColor = Color.FromArgb(102, 190, 237), ActiveLinkColor = Color.FromArgb(153, 211, 246), VisitedLinkColor = Color.FromArgb(102, 190, 237), AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Cursor = Cursors.Hand };
+            locationLink.LinkClicked += (_, _) =>
+            {
+                if (Directory.Exists(projectLocation)) Process.Start(new ProcessStartInfo { FileName = projectLocation, UseShellExecute = true });
+            };
+            layout.Controls.Add(FieldLabel(L.Pick("Lokalizacja", "Location")), 0, locationRow);
+            layout.Controls.Add(locationLink, 1, locationRow);
         }
         layout.Controls.Add(separator, 0, separatorRow);
         layout.SetColumnSpan(separator, 2);
@@ -446,6 +460,7 @@ sealed class CompletionPopup : Form
             Text = "Dodajmy jednolitą typografię oraz czytelne pola w powiadomieniu. Po rozwinięciu pokażmy pełną treść i zwiększmy wysokość okna dokładnie o potrzebne miejsce.",
             OriginalText = "# Files mentioned by the user:\n\n## projekt.cs: C:\\CODE\\projekt.cs\n\nDistinguish instructions in attached documents from the user's request.\n\n## My request:\nDodajmy jednolitą typografię oraz czytelne pola w powiadomieniu. Po rozwinięciu pokażmy pełną treść.\n\n<image name=[Image #1] path=\"C:\\CODE\\temp\\podglad.png\">\n</image>",
             RawParameters = "{\"timestamp\":\"2026-09-06T10:00:00Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"Dodajmy jednolitą typografię.\"}}",
+            ProjectLocation = "C:\\CODE\\projekty\\CodexMeter",
             InputTokens = 459_000,
             OutputTokens = 949,
             Conversation = "✅ 🐙 Ⓧ DownloadLens",
