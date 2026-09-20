@@ -196,11 +196,10 @@ sealed class CompletionPopup : Form
             ForeColor = valueColor,
             TextAlign = ContentAlignment.MiddleLeft
         };
-        string preview = string.Join(" ", prompt.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        if (preview.Length > 34) preview = preview[..34] + "…";
         string conversation = string.IsNullOrWhiteSpace(prompt.Conversation) ? L.LocalConversation : prompt.Conversation;
         string model = string.IsNullOrWhiteSpace(prompt.Model) ? L.Pick("niedostępny", "unavailable") : prompt.Model;
-        string effort = L.Thinking(prompt.ReasoningEffort);
+        string reasoningEffort = prompt.ReasoningEffort;
+        string effort = L.Thinking(reasoningEffort);
         var itemFont = new Font("Segoe UI", 8.3f);
         Label FieldLabel(string text) => new() { Text = text, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 8.3f, FontStyle.Bold), ForeColor = fieldColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
         Label FieldValue(string text, Color? color = null) => new() { Text = text, Dock = DockStyle.Fill, Font = itemFont, ForeColor = color ?? valueColor, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
@@ -208,7 +207,7 @@ sealed class CompletionPopup : Form
         {
             var host = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
             var modelLabel = new Label { Text = model + " · ", Dock = DockStyle.Left, AutoSize = true, Font = itemFont, ForeColor = valueColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
-            host.Controls.Add(FieldValue(L.Thinking(effort), ThinkingColor(effort)));
+            host.Controls.Add(FieldValue(effort, ThinkingColor(reasoningEffort)));
             host.Controls.Add(modelLabel);
             return host;
         }
@@ -263,8 +262,11 @@ sealed class CompletionPopup : Form
         int parametersRow = hasParameters ? contentRow + 2 : -1;
         if (hasPromptFlags)
         {
-            layout.Controls.Add(FieldLabel(L.Pick("Flagi", "Flags")), 0, flagsRow);
-            layout.Controls.Add(new FlagLine(activityFlags) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = valueColor, Font = new Font("Segoe UI", 7.3f) }, 1, flagsRow);
+            var flagsLabel = FieldLabel(L.Pick("Flagi", "Flags"));
+            flagsLabel.TextAlign = ContentAlignment.TopLeft;
+            flagsLabel.Padding = new Padding(0, P(2), 0, 0);
+            layout.Controls.Add(flagsLabel, 0, flagsRow);
+            layout.Controls.Add(new FlagLine(activityFlags) { Dock = DockStyle.Fill, Margin = Padding.Empty, AlignTop = true, ForeColor = valueColor, Font = new Font("Segoe UI", 7.3f) }, 1, flagsRow);
         }
         if (hasPromptStatus)
         {
