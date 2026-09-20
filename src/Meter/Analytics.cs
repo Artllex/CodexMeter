@@ -191,7 +191,7 @@ static class Analytics
     }
     static string Clean(string text)
     {
-        text = text.Trim();
+        text = WebUtility.HtmlDecode(text).Trim();
         if (text.StartsWith("<recommended_plugins>") || text.StartsWith("# AGENTS.md instructions") || text.StartsWith("<environment_context>") || text.StartsWith("<permissions instructions>") || text.StartsWith("<turn_aborted>") || text.StartsWith("<subagent_notification>")) return "";
         if (text.StartsWith("<send_user_message_question_reply>"))
         {
@@ -203,7 +203,16 @@ static class Analytics
             }
             catch { return ""; }
         }
-        return WebUtility.HtmlDecode(text);
+        const string marker = "My request:";
+        int markerIndex = text.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex >= 0)
+        {
+            int lineStart = text.LastIndexOf('\n', markerIndex);
+            string heading = text[(lineStart + 1)..markerIndex].Trim();
+            if (heading.All(c => c == '#' || char.IsWhiteSpace(c)))
+                text = text[(markerIndex + marker.Length)..].Trim();
+        }
+        return text;
     }
 
     public static string SelfTest(string directory)
@@ -219,7 +228,7 @@ static class Analytics
         Tokens(100, 100, 80, 20, "2026-09-06T10:00:01Z"); Tokens(100, 100, 80, 20, "2026-09-06T10:00:02Z"); Tokens(150, 50, 120, 30, "2026-09-06T10:00:03Z");
         Add("event_msg", new { type = "task_complete" });
         Add("event_msg", new { type = "task_started", turn_id = "b" });
-        Add("event_msg", new { type = "user_message", message = "Drugi prompt" });
+        Add("event_msg", new { type = "user_message", message = "# Files mentioned by the user:\nplik.png\n\n## My request:\nDrugi prompt" });
         Add("response_item", new { role = "user", content = new[] { new { text = "Drugi prompt" } } });
         Tokens(175, 25, 138, 37, "2026-09-06T10:01:01Z");
         File.WriteAllLines(path, lines.Append("{partial"));

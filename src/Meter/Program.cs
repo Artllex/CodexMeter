@@ -17,6 +17,18 @@ static class L
     public static string Short(long value) => value >= 1_000_000 ? $"{value / 1_000_000.0:0.#}{Pick(" mln", "M")}" : value >= 1_000 ? $"{value / 1_000.0:0.#}{Pick(" tys.", "K")}" : value.ToString("N0", Culture);
 }
 
+static class TokenVisuals
+{
+    static readonly Color Low = Color.FromArgb(176, 246, 194);
+    static readonly Color Medium = Color.FromArgb(255, 221, 128);
+    static readonly Color High = Color.FromArgb(255, 151, 151);
+
+    // Input includes conversation context and is normally much larger than output.
+    // The bands are intentionally independent.
+    public static Color Input(long value) => value >= 1_000_000 ? High : value >= 250_000 ? Medium : Low;
+    public static Color Output(long value) => value >= 5_000 ? High : value >= 1_000 ? Medium : Low;
+}
+
 static class AppMessages
 {
     const int HWND_BROADCAST = 0xFFFF;
@@ -112,7 +124,7 @@ sealed class CompletionPopup : Form
         StartPosition = FormStartPosition.Manual;
         TopMost = true;
         AutoScaleMode = AutoScaleMode.None;
-        ClientSize = new Size(P(360), P(205));
+        ClientSize = new Size(P(360), P(214));
         BackColor = Color.FromArgb(35, 35, 35);
         ForeColor = Color.FromArgb(242, 242, 242);
         Padding = new Padding(P(12), P(10), P(12), P(10));
@@ -121,14 +133,16 @@ sealed class CompletionPopup : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 6,
+            RowCount = 7,
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, P(116)));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, P(111)));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(34)));
-        for (int row = 0; row < 5; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(30)));
+        for (int row = 0; row < 3; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(30)));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(8)));
+        for (int row = 0; row < 2; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(30)));
 
         var fieldColor = Color.FromArgb(170, 170, 170);
         var valueColor = Color.FromArgb(242, 242, 242);
@@ -146,21 +160,24 @@ sealed class CompletionPopup : Form
         string model = string.IsNullOrWhiteSpace(prompt.Model) ? L.Pick("niedostępny", "unavailable") : prompt.Model;
         string effort = L.Thinking(prompt.ReasoningEffort);
         var itemFont = new Font("Segoe UI", 9.5f);
-        Label FieldLabel(string text) => new() { Text = text, Dock = DockStyle.Fill, Font = itemFont, ForeColor = fieldColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
-        Label FieldValue(string text) => new() { Text = text, Dock = DockStyle.Fill, Font = itemFont, ForeColor = valueColor, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
-        var context = new ConversationLine("", conversation) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = valueColor, Font = itemFont };
+        Label FieldLabel(string text) => new() { Text = text, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold), ForeColor = fieldColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
+        Label FieldValue(string text, Color? color = null) => new() { Text = text, Dock = DockStyle.Fill, Font = itemFont, ForeColor = color ?? valueColor, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
+        var context = new ConversationLine("", conversation) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = valueColor, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
+        var separator = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, P(3), 0, P(4)), BackColor = Color.FromArgb(78, 78, 78), Height = P(1) };
         layout.Controls.Add(title, 0, 0);
         layout.SetColumnSpan(title, 2);
-        layout.Controls.Add(FieldLabel(L.Pick("Tokeny IN", "Input tokens")), 0, 1);
-        layout.Controls.Add(FieldValue(Short(prompt.InputTokens)), 1, 1);
-        layout.Controls.Add(FieldLabel(L.Pick("Tokeny OUT", "Output tokens")), 0, 2);
-        layout.Controls.Add(FieldValue(Short(prompt.OutputTokens)), 1, 2);
+        layout.Controls.Add(FieldLabel(L.Pick("Rozmowa", "Conversation")), 0, 1);
+        layout.Controls.Add(context, 1, 1);
+        layout.Controls.Add(FieldLabel(L.Pick("Model", "Model")), 0, 2);
+        layout.Controls.Add(FieldValue($"{model} · {effort}"), 1, 2);
         layout.Controls.Add(FieldLabel(L.Pick("Zapytanie", "Prompt")), 0, 3);
         layout.Controls.Add(FieldValue(preview), 1, 3);
-        layout.Controls.Add(FieldLabel(L.Pick("Rozmowa", "Conversation")), 0, 4);
-        layout.Controls.Add(context, 1, 4);
-        layout.Controls.Add(FieldLabel(L.Pick("Model", "Model")), 0, 5);
-        layout.Controls.Add(FieldValue($"{model} · {effort}"), 1, 5);
+        layout.Controls.Add(separator, 0, 4);
+        layout.SetColumnSpan(separator, 2);
+        layout.Controls.Add(FieldLabel(L.Pick("Tokeny IN", "Input tokens")), 0, 5);
+        layout.Controls.Add(FieldValue(Short(prompt.InputTokens), TokenVisuals.Input(prompt.InputTokens)), 1, 5);
+        layout.Controls.Add(FieldLabel(L.Pick("Tokeny OUT", "Output tokens")), 0, 6);
+        layout.Controls.Add(FieldValue(Short(prompt.OutputTokens), TokenVisuals.Output(prompt.OutputTokens)), 1, 6);
         Controls.Add(layout);
         foreach (Control control in Controls.Cast<Control>().Append(this)) control.Click += (_, _) => Close();
         closeTimer.Tick += (_, _) => { closeTimer.Stop(); Close(); };
@@ -294,6 +311,12 @@ static class TrayGauge
     static Bitmap Render(int size, string value, double usedPercent)
     {
         float scale = size / 32f;
+        // Keep transparent space below the gauge so it sits slightly higher
+        // in the Windows taskbar button without clipping the ring.
+        float gaugeScale = 26f / 30f;
+        float gaugeX = 3f;
+        float gaugeY = 2.5f;
+        float G(float coordinate) => coordinate * gaugeScale;
         var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         using (var graphics = Graphics.FromImage(bitmap))
         {
@@ -302,18 +325,23 @@ static class TrayGauge
             graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
             graphics.Clear(Color.Transparent);
             using var background = new SolidBrush(Color.FromArgb(33, 33, 33));
-            graphics.FillEllipse(background, scale, scale, 30 * scale, 30 * scale);
-            using var track = new Pen(Color.FromArgb(76, 76, 76), 3.2f * scale);
-            graphics.DrawEllipse(track, 3.2f * scale, 3.2f * scale, 25.6f * scale, 25.6f * scale);
+            graphics.FillEllipse(background, gaugeX * scale, gaugeY * scale, G(30) * scale, G(30) * scale);
+            using var track = new Pen(Color.FromArgb(76, 76, 76), G(3.2f) * scale);
+            graphics.DrawEllipse(track, (gaugeX + G(2.2f)) * scale, (gaugeY + G(2.2f)) * scale, G(25.6f) * scale, G(25.6f) * scale);
             var color = usedPercent >= 90 ? Color.FromArgb(255, 111, 97)
                 : usedPercent >= 75 ? Color.FromArgb(255, 180, 90)
                 : Color.FromArgb(16, 163, 127);
-            using var progress = new Pen(color, 3.2f * scale) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
-            graphics.DrawArc(progress, 3.2f * scale, 3.2f * scale, 25.6f * scale, 25.6f * scale, -90, (float)(Math.Clamp(usedPercent, 0, 100) * 3.6));
+            using var progress = new Pen(color, G(3.2f) * scale) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
+            graphics.DrawArc(progress, (gaugeX + G(2.2f)) * scale, (gaugeY + G(2.2f)) * scale, G(25.6f) * scale, G(25.6f) * scale, -90, (float)(Math.Clamp(usedPercent, 0, 100) * 3.6));
             float baseFontSize = value == "GPT" ? 8.2f : value.Length >= 3 ? 8.2f : 10.5f;
-            using var font = new Font("Segoe UI", baseFontSize * scale, FontStyle.Bold, GraphicsUnit.Pixel);
-            TextRenderer.DrawText(graphics, value, font, new Rectangle((int)(4 * scale), (int)(5 * scale), (int)(24 * scale), (int)(22 * scale)), Color.White,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            using var font = new Font("Segoe UI", baseFontSize * gaugeScale * scale, FontStyle.Bold, GraphicsUnit.Pixel);
+            var valueSize = TextRenderer.MeasureText(graphics, value, font, Size.Empty, TextFormatFlags.NoPadding);
+            float valueCenterX = (gaugeX + G(15)) * scale;
+            float valueCenterY = (gaugeY + G(15)) * scale;
+            var valuePoint = new Point(
+                (int)Math.Round(valueCenterX - valueSize.Width / 2f),
+                (int)Math.Round(valueCenterY - valueSize.Height / 2f));
+            TextRenderer.DrawText(graphics, value, font, valuePoint, Color.White, TextFormatFlags.NoPadding);
         }
         return bitmap;
     }
@@ -360,7 +388,7 @@ class MeterForm : Form
     static readonly Color MainText = Color.FromArgb(236, 236, 236);
     static readonly Color MutedText = Color.FromArgb(180, 180, 180);
     static readonly Color Accent = Color.FromArgb(16, 163, 127);
-    const int WM_NCLBUTTONDOWN = 0xA1, HTCAPTION = 0x2, WM_SETICON = 0x80, ICON_SMALL = 0, ICON_BIG = 1;
+    const int WM_NCLBUTTONDOWN = 0xA1, HTCAPTION = 0x2, WM_SETICON = 0x80, WM_SETREDRAW = 0x0B, ICON_SMALL = 0, ICON_BIG = 1;
     const int WM_CLOSE = 0x10, WM_SYSCOMMAND = 0x112, SC_CLOSE = 0xF060, SC_MINIMIZE = 0xF020;
     [DllImport("user32.dll")] static extern bool ReleaseCapture();
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
@@ -524,8 +552,8 @@ class MeterForm : Form
         previous?.Dispose();
         string resetText = reset.HasValue ? DateTimeOffset.FromUnixTimeSeconds(reset.Value).ToLocalTime().ToString("dd.MM HH:mm") : "?";
         string tooltip = L.Polish
-            ? $"Codex Meter: {used:0.#}% użyte · {remaining:0.#}% zostało · reset {resetText}"
-            : $"Codex Meter: {used:0.#}% used · {remaining:0.#}% remaining · reset {resetText}";
+            ? $"{used:0.#}% użyte · {remaining:0.#}% zostało · reset {resetText}"
+            : $"{used:0.#}% used · {remaining:0.#}% remaining · reset {resetText}";
         tray.Text = tooltip.Length <= 63 ? tooltip : tooltip[..63];
     }
     void ApplyTaskbarMeter()
@@ -562,10 +590,12 @@ class MeterForm : Form
         titleBar.MouseDown += Drag; title.MouseDown += Drag;
         titleBar.Controls.Add(title); titleBar.Controls.Add(close); close.BringToFront(); Controls.Add(titleBar); titleBar.BringToFront();
     }
-    void PositionPanel()
+    void PositionPanel(Screen? target = null)
     {
-        var area = Screen.FromPoint(Cursor.Position).WorkingArea;
-        Location = new Point(Math.Max(area.Left, area.Right - Width - S(12)), Math.Max(area.Top, area.Bottom - Height - S(12)));
+        var area = (target ?? Screen.FromPoint(Cursor.Position)).WorkingArea;
+        int x = Math.Clamp(area.Right - Width - S(12), area.Left, Math.Max(area.Left, area.Right - Width));
+        int y = Math.Clamp(area.Bottom - Height - S(12), area.Top, Math.Max(area.Top, area.Bottom - Height));
+        SetBounds(x, y, Width, Height, BoundsSpecified.Location);
     }
     void MinimizeToTaskbar()
     {
@@ -596,7 +626,20 @@ class MeterForm : Form
         }
         catch { }
     }
-    void Reveal() { ShowInTaskbar = true; PositionPanel(); Show(); WindowState = FormWindowState.Normal; ApplyTaskbarMeter(); Activate(); }
+    void Reveal()
+    {
+        var target = Screen.FromPoint(Cursor.Position);
+        bool restoring = WindowState == FormWindowState.Minimized;
+        if (restoring) Hide();
+        ShowInTaskbar = true;
+        WindowState = FormWindowState.Normal;
+        PositionPanel(target);
+        if (!Visible) Show();
+        PositionPanel(target);
+        ApplyTaskbarMeter();
+        Activate();
+        BeginInvoke((Action)(() => PositionPanel(target)));
+    }
     public void ExpandForPreview()
     {
         local = Analytics.Read(); chartOpen = true; promptHistoryOpen = true; Render();
@@ -611,6 +654,9 @@ class MeterForm : Form
             Thread.Sleep(25);
         }
         ApplyTaskbarMeter();
+        PositionPanel();
+        if (!Screen.FromControl(this).WorkingArea.Contains(Bounds))
+            throw new InvalidOperationException("Panel znajduje się poza obszarem roboczym ekranu.");
         if (!taskbarMeterResult.Contains("progress-cleared=0x00000000, overlay-cleared=0x00000000"))
             throw new InvalidOperationException($"Windows nie przyjął dynamicznej ikony: {taskbarMeterResult}; TaskbarButtonCreated={taskbarButtonCreated}");
         var closeButton = titleBar.Controls.OfType<Button>().Single(button => button.Text == "X");
@@ -735,6 +781,8 @@ class MeterForm : Form
     {
         SuspendLayout();
         body.SuspendLayout();
+        bool bodyRedrawPaused = body.IsHandleCreated;
+        if (bodyRedrawPaused) SendMessage(body.Handle, WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero);
         body.Controls.Remove(status);
         foreach (Control control in body.Controls.Cast<Control>().ToArray()) control.Dispose();
         var limits = current?["limits"];
@@ -778,6 +826,12 @@ class MeterForm : Form
         if (used.HasValue) UpdateTrayGauge(used, remaining, reset);
         else tray.Text = L.Pick("Codex Meter — brak danych o wykorzystaniu", "Codex Meter — no usage data");
         body.ResumeLayout();
+        if (bodyRedrawPaused)
+        {
+            SendMessage(body.Handle, WM_SETREDRAW, (IntPtr)1, IntPtr.Zero);
+            body.Invalidate(true);
+            body.Update();
+        }
         ResumeLayout();
         PositionPanel();
     }
@@ -871,51 +925,50 @@ class MeterForm : Form
     }
     int RenderPromptHistory(int y)
     {
-        var note = TextAt(L.Pick("Lokalna historia · 5 najnowszych", "Local history · 5 newest"), 20, y, 280, 20, 8, MutedText);
-        tips.SetToolTip(note, L.Pick("Pięć ostatnich promptów zapisanych przez Codex Meter. Kliknij pozycję, aby zobaczyć treść, datę i liczbę tokenów.", "The five most recent prompts saved by Codex Meter. Click an item to see its text, date, and token count."));
+        var note = TextAt(L.Pick("Lokalna historia · 3 najnowsze", "Local history · 3 newest"), 20, y, 280, 20, 8, MutedText);
+        tips.SetToolTip(note, L.Pick("Trzy ostatnie prompty zapisane przez Codex Meter. Kliknij pozycję, aby zobaczyć treść, datę i liczbę tokenów.", "The three most recent prompts saved by Codex Meter. Click an item to see its text, date, and token count."));
         y += 23;
-        var prompts = local?.Prompts.OrderByDescending(x => x.At).Take(5).ToList();
+        var prompts = local?.Prompts.OrderByDescending(x => x.At).Take(3).ToList();
         if (prompts == null || prompts.Count == 0)
         {
             var label = TextAt(localBusy ? L.Pick("Odczytywanie historii…", "Reading history…") : localError != null ? L.Pick("Nie udało się odczytać historii", "Could not read history") : L.Pick("Brak zapisanych promptów", "No saved prompts"), 20, y, 280, 30, 9, Color.Gray);
             if (localError != null) tips.SetToolTip(label, localError);
             return y + 35;
         }
-        const int rowHeight = 61;
-        var list = new Panel { Location = new Point(S(17), S(y)), Size = new Size(S(286), S(prompts.Count * rowHeight)), AutoScroll = true };
+        const int rowContentHeight = 101;
+        const int rowGap = 8;
+        const int rowHeight = rowContentHeight + rowGap;
+        var list = new Panel { Location = new Point(S(17), S(y)), Size = new Size(S(286), S(prompts.Count * rowHeight)) };
         for (int i = 0; i < prompts.Count; i++)
         {
             var prompt = prompts[i]; var position = i + 1;
             string preview = string.Join(" ", prompt.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-            if (preview.Length > 26) preview = preview[..26] + "…";
+            if (preview.Length > 34) preview = preview[..34] + "…";
             string conversation = string.IsNullOrWhiteSpace(prompt.Conversation) ? L.LocalConversation : prompt.Conversation;
-            if (conversation.Length > 27) conversation = conversation[..27] + "…";
             string model = string.IsNullOrWhiteSpace(prompt.Model) ? L.Pick("niedostępny", "unavailable") : prompt.Model;
             string effort = L.Thinking(prompt.ReasoningEffort);
-            var row = new Panel { Location = new Point(0, S(i * rowHeight)), Size = new Size(S(265), S(rowHeight - 1)), Cursor = Cursors.Hand };
-            var inputText = "IN " + UsageChart.Short(prompt.InputTokens);
-            var outputText = "  OUT " + UsageChart.Short(prompt.OutputTokens);
+            var row = new Panel { Location = new Point(0, S(i * rowHeight)), Size = new Size(S(280), S(rowContentHeight)), Cursor = Cursors.Hand };
             var itemFont = new Font("Segoe UI", 7.3f);
-            int inputWidth = TextRenderer.MeasureText(inputText, itemFont).Width;
-            int outputWidth = TextRenderer.MeasureText(outputText, itemFont).Width;
-            var input = new Label { Text = inputText, Location = new Point(S(4), S(2)), Size = new Size(inputWidth, S(18)), Font = itemFont, ForeColor = Accent };
-            var output = new Label { Text = outputText, Location = new Point(S(4) + inputWidth, S(2)), Size = new Size(outputWidth, S(18)), Font = itemFont, ForeColor = Color.FromArgb(129, 230, 184) };
-            var content = new Label { Text = " · " + preview, Location = new Point(S(4) + inputWidth + outputWidth, S(2)), Size = new Size(Math.Max(1, S(257) - inputWidth - outputWidth), S(18)), Font = itemFont, ForeColor = ForeColor };
-            var context = new ConversationLine(prompt.At.ToLocalTime().ToString("HH:mm"), conversation) { Location = new Point(S(4), S(21)), Size = new Size(S(257), S(18)), ForeColor = ForeColor };
-            var settings = new Label { Text = $"{model} · {effort}", Location = new Point(S(4), S(40)), Size = new Size(S(257), S(18)), Font = itemFont, ForeColor = ForeColor };
-            row.Controls.Add(input); row.Controls.Add(output); row.Controls.Add(content); row.Controls.Add(context); row.Controls.Add(settings);
-            string tooltip = $"{L.Pick("Prompt", "Prompt")} {position} · IN {Number(prompt.InputTokens)} · OUT {Number(prompt.OutputTokens)}\n{prompt.At.ToLocalTime():g}\n{conversation}\n{model} · {effort}" + (prompt.Complete ? "" : L.Pick(" · w toku / brak zakończenia", " · in progress / no completion"));
+            Label Field(string text, int top) => new() { Text = text, Location = new Point(S(4), S(top)), Size = new Size(S(74), S(17)), Font = new Font("Segoe UI", 7.3f, FontStyle.Bold), ForeColor = MutedText };
+            Label Value(string text, int top, Color? color = null) => new() { Text = text, Location = new Point(S(82), S(top)), Size = new Size(S(175), S(17)), Font = itemFont, ForeColor = color ?? ForeColor, AutoEllipsis = true };
+            var context = new ConversationLine("", conversation) { Location = new Point(S(82), S(2)), Size = new Size(S(175), S(17)), ForeColor = ForeColor, Font = new Font("Segoe UI", 7.3f, FontStyle.Bold) };
+            row.Controls.Add(Field(L.Pick("Rozmowa", "Conversation"), 2)); row.Controls.Add(context);
+            row.Controls.Add(Field(L.Pick("Model", "Model"), 20)); row.Controls.Add(Value($"{model} · {effort}", 20));
+            row.Controls.Add(Field(L.Pick("Zapytanie", "Prompt"), 38)); row.Controls.Add(Value(preview, 38));
+            row.Controls.Add(Field(L.Pick("Tokeny IN", "Input tokens"), 57)); row.Controls.Add(Value(UsageChart.Short(prompt.InputTokens), 57, TokenVisuals.Input(prompt.InputTokens)));
+            row.Controls.Add(Field(L.Pick("Tokeny OUT", "Output tokens"), 75)); row.Controls.Add(Value(UsageChart.Short(prompt.OutputTokens), 75, TokenVisuals.Output(prompt.OutputTokens)));
+            string occurredAt = prompt.At.ToLocalTime().ToString("dd.MM.yyyy · HH:mm", L.Culture);
             foreach (Control control in row.Controls.Cast<Control>().Append(row))
             {
-                tips.SetToolTip(control, tooltip);
                 control.Click += (_, _) => ShowPrompt(prompt, position);
-                control.MouseEnter += (_, _) => row.BackColor = Raised;
-                control.MouseLeave += (_, _) => { if (!row.ClientRectangle.Contains(row.PointToClient(Cursor.Position))) row.BackColor = BackColor; };
+                tips.SetToolTip(control, occurredAt);
             }
             list.Controls.Add(row);
+            if (i < prompts.Count - 1)
+                list.Controls.Add(new Panel { Location = new Point(S(1), S((i + 1) * rowHeight - rowGap / 2)), Size = new Size(S(278), S(1)), BackColor = Color.FromArgb(96, 96, 96) });
         }
         body.Controls.Add(list);
-        return y + prompts.Count * rowHeight + 10;
+        return y + prompts.Count * rowHeight + 2;
     }
     void ShowPrompt(PromptUsage prompt, int rank)
     {
@@ -924,15 +977,52 @@ class MeterForm : Form
     }
     Form CreatePromptDialog(PromptUsage prompt, int rank)
     {
-        var dialog = new Form { Text = $"Prompt {rank}", ClientSize = new Size(S(470), S(290)), MinimumSize = new Size(S(340), S(230)), BackColor = BackColor, ForeColor = ForeColor, ShowInTaskbar = false, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = new Font("Segoe UI", 10), AutoScaleMode = AutoScaleMode.None };
+        string compactTitle = string.Join(" ", prompt.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        string dialogTitle = string.IsNullOrWhiteSpace(compactTitle)
+            ? $"{L.Pick("Szczegóły promptu", "Prompt details")} {rank}"
+            : (compactTitle.Length <= 54 ? compactTitle : compactTitle[..54] + "…");
+        var dialog = new Form
+        {
+            Text = dialogTitle,
+            ClientSize = new Size(S(470), S(330)),
+            MinimumSize = new Size(S(340), S(230)),
+            BackColor = Surface,
+            ForeColor = MainText,
+            ShowInTaskbar = false,
+            StartPosition = FormStartPosition.CenterParent,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            FormBorderStyle = FormBorderStyle.None,
+            Font = new Font("Segoe UI", 10),
+            AutoScaleMode = AutoScaleMode.None
+        };
         string conversation = string.IsNullOrWhiteSpace(prompt.Conversation) ? L.LocalConversation : prompt.Conversation;
         string model = string.IsNullOrWhiteSpace(prompt.Model) ? L.Pick("niedostępny", "unavailable") : prompt.Model;
         string effort = L.Thinking(prompt.ReasoningEffort);
-        var header = new Label { Dock = DockStyle.Top, Height = S(66), Padding = new Padding(S(12), S(8), 0, 0), Font = new Font("Segoe UI Emoji", 9), Text = $"{prompt.At.ToLocalTime():g}    IN {Number(prompt.InputTokens)} · OUT {Number(prompt.OutputTokens)}\n{conversation}\n{model} · {effort}" };
-        var text = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(30, 34, 42), ForeColor = ForeColor, Text = prompt.Text.Replace("\r\n", "\n").Replace("\n", Environment.NewLine) };
-        var holder = new Panel { Dock = DockStyle.Fill, Padding = new Padding(S(12), 0, S(12), S(12)) }; holder.Controls.Add(text);
-        dialog.Controls.Add(holder); dialog.Controls.Add(header);
-        dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+        var titleBar = new Panel { Dock = DockStyle.Top, Height = S(36), BackColor = Surface };
+        var title = new Label { Text = dialog.Text, Location = new Point(S(14), 0), Size = new Size(S(400), S(36)), TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", 10, FontStyle.Bold), ForeColor = MainText };
+        var close = new Button { Text = "X", Dock = DockStyle.Right, Width = S(42), FlatStyle = FlatStyle.Flat, BackColor = Raised, ForeColor = MainText, Font = new Font("Segoe UI", 8), TabStop = false };
+        close.FlatAppearance.BorderSize = 0; close.FlatAppearance.MouseOverBackColor = Color.FromArgb(196, 43, 28); close.FlatAppearance.MouseDownBackColor = Color.FromArgb(153, 30, 22);
+        close.Click += (_, _) => dialog.Close();
+        void Drag(object? sender, MouseEventArgs e) { if (e.Button == MouseButtons.Left) { ReleaseCapture(); SendMessage(dialog.Handle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero); } }
+        titleBar.MouseDown += Drag; title.MouseDown += Drag;
+        titleBar.Controls.Add(title); titleBar.Controls.Add(close);
+
+        var fields = new TableLayoutPanel { Dock = DockStyle.Top, Height = S(119), Padding = new Padding(S(12), S(5), S(12), 0), ColumnCount = 2, RowCount = 4 };
+        fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(84))); fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (int row = 0; row < 4; row++) fields.RowStyles.Add(new RowStyle(SizeType.Absolute, S(27)));
+        var fieldColor = Color.FromArgb(170, 170, 170);
+        Label Field(string value) => new() { Text = value, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = fieldColor, TextAlign = ContentAlignment.MiddleLeft };
+        Label Value(string value, Color? color = null) => new() { Text = value, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 8.5f), ForeColor = color ?? MainText, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
+        var dialogConversation = new ConversationLine("", conversation) { Dock = DockStyle.Fill, ForeColor = MainText, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold) };
+        fields.Controls.Add(Field(L.Pick("Rozmowa", "Conversation")), 0, 0); fields.Controls.Add(dialogConversation, 1, 0);
+        fields.Controls.Add(Field(L.Pick("Model", "Model")), 0, 1); fields.Controls.Add(Value($"{model} · {effort}"), 1, 1);
+        fields.Controls.Add(Field(L.Pick("Tokeny IN", "Input tokens")), 0, 2); fields.Controls.Add(Value(Number(prompt.InputTokens), TokenVisuals.Input(prompt.InputTokens)), 1, 2);
+        fields.Controls.Add(Field(L.Pick("Tokeny OUT", "Output tokens")), 0, 3); fields.Controls.Add(Value(Number(prompt.OutputTokens), TokenVisuals.Output(prompt.OutputTokens)), 1, 3);
+        var divider = new Panel { Dock = DockStyle.Top, Height = S(1), Margin = new Padding(S(12), 0, S(12), 0), BackColor = Color.FromArgb(78, 78, 78) };
+        var text = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.None, BorderStyle = BorderStyle.None, BackColor = Surface, ForeColor = MainText, Font = new Font("Segoe UI", 9), Text = prompt.Text.Replace("\r\n", "\n").Replace("\n", Environment.NewLine) };
+        var holder = new Panel { Dock = DockStyle.Fill, Padding = new Padding(S(12), S(10), S(12), S(12)), BackColor = Surface }; holder.Controls.Add(text);
+        dialog.Controls.Add(holder); dialog.Controls.Add(divider); dialog.Controls.Add(fields); dialog.Controls.Add(titleBar);
         dialog.Shown += (_, _) => { text.SelectionStart = 0; text.SelectionLength = 0; };
         return dialog;
     }
