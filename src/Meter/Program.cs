@@ -146,7 +146,7 @@ sealed class CompletionPopup : Form
         var statusFlags = PromptFlags.StatusItems(prompt);
         bool hasPromptFlags = activityFlags.Count > 0, hasPromptStatus = statusFlags.Count > 0;
         var popupFlagFont = new Font("Segoe UI", 7.3f);
-        int flagsHeight = hasPromptFlags ? FlagLine.RequiredHeight(activityFlags, popupFlagFont, P(306), P(24)) : 0;
+        int flagsHeight = hasPromptFlags ? Math.Max(24, (int)Math.Ceiling(FlagLine.RequiredHeight(activityFlags, popupFlagFont, P(306), P(24)) / dpiScale)) : 0;
         int statusHeight = hasPromptStatus ? 24 : 0;
         string projectLocation = prompt.ProjectLocation;
         bool hasProjectLocation = !string.IsNullOrWhiteSpace(projectLocation);
@@ -203,7 +203,8 @@ sealed class CompletionPopup : Form
         string conversation = string.IsNullOrWhiteSpace(prompt.Conversation) ? L.LocalConversation : prompt.Conversation;
         string model = string.IsNullOrWhiteSpace(prompt.Model) ? L.Pick("niedostępny", "unavailable") : prompt.Model;
         string reasoningEffort = prompt.ReasoningEffort;
-        string effort = L.Thinking(reasoningEffort);
+        string thinkingPrefix = L.Pick("myślenie: ", "thinking: ");
+        string thinkingValue = string.IsNullOrWhiteSpace(reasoningEffort) ? L.Pick("niedostępne", "unavailable") : reasoningEffort;
         var itemFont = new Font("Segoe UI", 8.3f);
         Label FieldLabel(string text) => new() { Text = text, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 8.3f, FontStyle.Bold), ForeColor = fieldColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
         Label FieldValue(string text, Color? color = null) => new() { Text = text, Dock = DockStyle.Fill, Font = itemFont, ForeColor = color ?? valueColor, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
@@ -211,8 +212,11 @@ sealed class CompletionPopup : Form
         {
             var host = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
             int modelWidth = TextRenderer.MeasureText(model + " · ", itemFont, Size.Empty, TextFormatFlags.NoPadding).Width;
+            int prefixWidth = TextRenderer.MeasureText(thinkingPrefix, itemFont, Size.Empty, TextFormatFlags.NoPadding).Width;
             var modelLabel = new Label { Text = model + " · ", Dock = DockStyle.Left, Width = modelWidth, AutoSize = false, Font = itemFont, ForeColor = valueColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
-            host.Controls.Add(FieldValue(effort, ThinkingColor(reasoningEffort)));
+            var prefixLabel = new Label { Text = thinkingPrefix, Dock = DockStyle.Left, Width = prefixWidth, AutoSize = false, Font = itemFont, ForeColor = valueColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
+            host.Controls.Add(FieldValue(thinkingValue, ThinkingColor(reasoningEffort)));
+            host.Controls.Add(prefixLabel);
             host.Controls.Add(modelLabel);
             return host;
         }
@@ -269,7 +273,7 @@ sealed class CompletionPopup : Form
         if (hasPromptFlags)
         {
             var flagsLabel = FieldLabel(L.Pick("Flagi", "Flags"));
-            bool flagsWrap = flagsHeight > P(24);
+            bool flagsWrap = flagsHeight > 24;
             if (flagsWrap)
             {
                 flagsLabel.TextAlign = ContentAlignment.TopLeft;
