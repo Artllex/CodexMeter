@@ -10,6 +10,7 @@ class PromptUsage
     public DateTimeOffset At { get; set; }
     public string Text { get; set; } = "";
     public string OriginalText { get; set; } = "";
+    public string RawParameters { get; set; } = "";
     public long Tokens { get; set; }
     public long InputTokens { get; set; }
     public long OutputTokens { get; set; }
@@ -222,6 +223,7 @@ static class Analytics
                         At = at,
                         Text = text,
                         OriginalText = Original(attachmentSource),
+                        RawParameters = e.GetRawText(),
                         SessionId = session,
                         Conversation = conversation,
                         Model = model,
@@ -233,6 +235,7 @@ static class Analytics
                 {
                     active.Text += "\n\n— Doprecyzowanie —\n" + text;
                     active.OriginalText += "\n\n— Doprecyzowanie —\n" + Original(attachmentSource);
+                    active.RawParameters += "\n" + e.GetRawText();
                 }
                 CountAttachments(attachmentSource, active);
             }
@@ -347,7 +350,7 @@ static class Analytics
         File.WriteAllLines(path, lines.Append("{partial"));
         var result = Parse(path);
         var flagged = result.Prompts[1];
-        if (result.Samples.Sum(x => x.Tokens) != 175 || result.Prompts.Count != 2 || result.Prompts[0].Tokens != 150 || result.Prompts[0].InputTokens != 120 || result.Prompts[0].OutputTokens != 30 || flagged.Tokens != 25 || flagged.Text != "Drugi prompt" || !flagged.OriginalText.Contains("## My request:") || flagged.OriginalText.Contains("&#x20;") || result.Prompts[0].Model != "gpt-test" || result.Prompts[0].ReasoningEffort != "high") throw new Exception("Błąd sumowania tokenów lub metadanych promptu.");
+        if (result.Samples.Sum(x => x.Tokens) != 175 || result.Prompts.Count != 2 || result.Prompts[0].Tokens != 150 || result.Prompts[0].InputTokens != 120 || result.Prompts[0].OutputTokens != 30 || flagged.Tokens != 25 || flagged.Text != "Drugi prompt" || !flagged.OriginalText.Contains("## My request:") || !flagged.RawParameters.Contains("user_message") || flagged.OriginalText.Contains("&#x20;") || result.Prompts[0].Model != "gpt-test" || result.Prompts[0].ReasoningEffort != "high") throw new Exception("Błąd sumowania tokenów lub metadanych promptu.");
         if (result.Prompts[0].WorkedOnCode || result.Prompts[0].GitCommit || result.Prompts[0].GeneratedPicture || result.Prompts[0].McpTools.Count > 0) throw new Exception("Tekst wyniku narzędzia został błędnie uznany za wykonaną akcję.");
         if (flagged.PictureCount != 1 || flagged.FileCount != 1 || !flagged.WorkedOnCode || !flagged.TestsRun || !flagged.ProjectBuilt || !flagged.GitCommit || !flagged.GitPush || !flagged.PullRequest || !flagged.PackageBuilt || !flagged.ReleaseCreated || !flagged.GeneratedPicture || !flagged.UsedWeb || !flagged.UsedBrowser || !flagged.DependenciesChanged || !flagged.InstalledSoftware || !flagged.DocumentsChanged || flagged.AgentCount != 1 || !flagged.AutomationChanged || !flagged.Partial || !flagged.McpTools.Contains("figma: get_file")) throw new Exception("Błąd wykrywania flag aktywności promptu.");
         if (PromptContent.Sections("Zwykłe zapytanie").FirstOrDefault()?.Title != "My request") throw new Exception("Zwykłe zapytanie nie trafiło do sekcji My request.");

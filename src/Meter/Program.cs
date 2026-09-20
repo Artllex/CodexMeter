@@ -148,6 +148,9 @@ sealed class CompletionPopup : Form
         int flagsHeight = activityFlags.Count > 12 ? 78 : activityFlags.Count > 6 ? 60 : activityFlags.Count > 3 ? 42 : 24;
         int statusHeight = hasPromptStatus ? 24 : 0;
         int metadataHeight = (hasPromptFlags ? flagsHeight : 0) + statusHeight;
+        string rawParameters = FormatRawParameters(prompt.RawParameters);
+        int parameterLineCount = string.IsNullOrWhiteSpace(rawParameters) ? 0 : rawParameters.Split(Environment.NewLine).Length;
+        bool hasParameters = parameterLineCount > 0;
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -163,7 +166,7 @@ sealed class CompletionPopup : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 9 + (hasPromptFlags ? 1 : 0) + (hasPromptStatus ? 1 : 0),
+            RowCount = 9 + (hasPromptFlags ? 1 : 0) + (hasPromptStatus ? 1 : 0) + (hasParameters ? 2 : 0),
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
@@ -177,6 +180,11 @@ sealed class CompletionPopup : Form
         for (int row = 0; row < 2; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(24)));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(6)));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(26)));
+        if (hasParameters)
+        {
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(6)));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(26)));
+        }
 
         var fieldColor = Color.FromArgb(170, 170, 170);
         var valueColor = Color.FromArgb(242, 242, 242);
@@ -214,6 +222,15 @@ sealed class CompletionPopup : Form
         expandContent.FlatAppearance.BorderSize = 0; expandContent.FlatAppearance.MouseOverBackColor = Color.FromArgb(70, 83, 111); expandContent.FlatAppearance.MouseDownBackColor = Color.FromArgb(61, 72, 96);
         expandHost.Controls.Add(expandContent);
         contentPanel.Controls.Add(fullPrompt); contentPanel.Controls.Add(expandHost);
+        var parametersSeparator = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, P(3), 0, P(3)), BackColor = Color.FromArgb(78, 78, 78), Height = P(1), Visible = hasParameters };
+        var parametersPanel = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, Visible = hasParameters };
+        var fullParameters = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, ScrollBars = RichTextBoxScrollBars.None, BorderStyle = BorderStyle.None, BackColor = BackColor, ForeColor = valueColor, Font = new Font("Consolas", 7.2f), DetectUrls = false, WordWrap = false, Text = "", Margin = Padding.Empty };
+        string collapsedParameters = L.Pick($"Parametry: {parameterLineCount} linii…", $"Parameters: {parameterLineCount} lines…");
+        var expandParametersHost = new Panel { Dock = DockStyle.Right, Width = P(34), BackColor = BackColor, Visible = hasParameters };
+        var expandParameters = new Button { Text = "⌄", Location = new Point(P(4), 0), Size = new Size(P(30), P(30)), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(45, 45, 45), ForeColor = valueColor, Font = new Font("Segoe UI", 9), TabStop = false };
+        expandParameters.FlatAppearance.BorderSize = 0; expandParameters.FlatAppearance.MouseOverBackColor = Color.FromArgb(70, 83, 111); expandParameters.FlatAppearance.MouseDownBackColor = Color.FromArgb(61, 72, 96);
+        expandParametersHost.Controls.Add(expandParameters);
+        parametersPanel.Controls.Add(fullParameters); parametersPanel.Controls.Add(expandParametersHost);
         var titleBar = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
         var close = new Button { Text = "X", Dock = DockStyle.Right, Width = P(32), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(45, 45, 45), ForeColor = valueColor, Font = new Font("Segoe UI", 8), TabStop = false };
         close.FlatAppearance.BorderSize = 0; close.FlatAppearance.MouseOverBackColor = Color.FromArgb(196, 43, 28); close.FlatAppearance.MouseDownBackColor = Color.FromArgb(153, 30, 22);
@@ -235,6 +252,8 @@ sealed class CompletionPopup : Form
         int outputRow = separatorRow + 2;
         int contentSeparatorRow = separatorRow + 3;
         int contentRow = separatorRow + 4;
+        int parametersSeparatorRow = hasParameters ? contentRow + 1 : -1;
+        int parametersRow = hasParameters ? contentRow + 2 : -1;
         if (hasPromptFlags)
         {
             layout.Controls.Add(FieldLabel(L.Pick("Flagi", "Flags")), 0, flagsRow);
@@ -258,8 +277,52 @@ sealed class CompletionPopup : Form
         contentFieldLabel.Padding = new Padding(0, P(4), 0, 0);
         layout.Controls.Add(contentFieldLabel, 0, contentRow);
         layout.Controls.Add(contentPanel, 1, contentRow);
+        if (hasParameters)
+        {
+            layout.Controls.Add(parametersSeparator, 0, parametersSeparatorRow);
+            layout.SetColumnSpan(parametersSeparator, 2);
+            var parametersFieldLabel = FieldLabel(L.Pick("Parametry", "Parameters"));
+            parametersFieldLabel.TextAlign = ContentAlignment.TopLeft;
+            parametersFieldLabel.Padding = new Padding(0, P(4), 0, 0);
+            layout.Controls.Add(parametersFieldLabel, 0, parametersRow);
+            layout.Controls.Add(parametersPanel, 1, parametersRow);
+        }
         Controls.Add(layout);
         bool contentExpanded = false;
+        bool parametersExpanded = false;
+        int MeasureTextHeight(RichTextBox box, Panel panel, int reservedWidth)
+        {
+            layout.PerformLayout();
+            int textWidth = Math.Max(P(80), panel.Width - reservedWidth);
+            return TextRenderer.MeasureText(box.Text, box.Font, new Size(textWidth, int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl).Height + P(6);
+        }
+        void UpdateContentLayout()
+        {
+            int contentHeight = Math.Max(P(26), MeasureTextHeight(fullPrompt, contentPanel, canExpandContent ? expandHost.Width : 0));
+            int parametersHeight = hasParameters ? Math.Max(P(26), MeasureTextHeight(fullParameters, parametersPanel, expandParametersHost.Width)) : 0;
+            int fixedPanelHeight = P(180 + metadataHeight);
+            int maximumClientHeight = Screen.FromControl(this).WorkingArea.Height - P(24);
+            int parametersSpacing = hasParameters ? P(6) : 0;
+            int totalHeight = fixedPanelHeight + contentHeight + parametersSpacing + parametersHeight;
+            if (totalHeight > maximumClientHeight)
+            {
+                int available = Math.Max(P(52), maximumClientHeight - fixedPanelHeight - parametersSpacing);
+                if (contentExpanded && parametersExpanded)
+                {
+                    int contentShare = Math.Max(P(26), available / 2);
+                    contentHeight = Math.Min(contentHeight, contentShare);
+                    parametersHeight = Math.Max(P(26), available - contentHeight);
+                }
+                else if (contentExpanded) contentHeight = Math.Max(P(26), available - parametersHeight);
+                else if (parametersExpanded) parametersHeight = Math.Max(P(26), available - contentHeight);
+            }
+            fullPrompt.ScrollBars = contentExpanded && contentHeight < MeasureTextHeight(fullPrompt, contentPanel, canExpandContent ? expandHost.Width : 0) ? RichTextBoxScrollBars.Vertical : RichTextBoxScrollBars.None;
+            fullParameters.ScrollBars = hasParameters && parametersExpanded && parametersHeight < MeasureTextHeight(fullParameters, parametersPanel, expandParametersHost.Width) ? RichTextBoxScrollBars.Vertical : RichTextBoxScrollBars.None;
+            layout.RowStyles[contentRow].Height = contentHeight;
+            if (hasParameters) layout.RowStyles[parametersRow].Height = parametersHeight;
+            ClientSize = new Size(ClientSize.Width, fixedPanelHeight + contentHeight + parametersSpacing + parametersHeight);
+            Reposition();
+        }
         void SetContentExpanded(bool expanded)
         {
             expanded &= canExpandContent;
@@ -267,28 +330,20 @@ sealed class CompletionPopup : Form
             if (expanded) PromptContent.WriteTo(fullPrompt, contentSections, valueColor, fieldColor);
             else fullPrompt.Text = collapsedText;
             expandContent.Text = expanded ? "⌃" : "⌄";
-            layout.PerformLayout();
-            int textWidth = Math.Max(P(80), contentPanel.Width - (canExpandContent ? expandHost.Width : 0));
-            int measuredHeight = TextRenderer.MeasureText(fullPrompt.Text, fullPrompt.Font, new Size(textWidth, int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl).Height;
-            int contentHeight = Math.Max(P(26), measuredHeight + P(6));
-            int fixedPanelHeight = P(180 + metadataHeight);
-            if (expanded)
-            {
-                int maximumClientHeight = (Screen.FromControl(this).WorkingArea.Height - P(24));
-                if (fixedPanelHeight + contentHeight > maximumClientHeight)
-                {
-                    contentHeight = Math.Max(P(26), maximumClientHeight - fixedPanelHeight);
-                    fullPrompt.ScrollBars = RichTextBoxScrollBars.Vertical;
-                }
-                else fullPrompt.ScrollBars = RichTextBoxScrollBars.None;
-            }
-            else fullPrompt.ScrollBars = RichTextBoxScrollBars.None;
-            layout.RowStyles[contentRow].Height = contentHeight;
-            ClientSize = new Size(ClientSize.Width, fixedPanelHeight + contentHeight);
-            Reposition();
+            UpdateContentLayout();
+        }
+        void SetParametersExpanded(bool expanded)
+        {
+            if (!hasParameters) return;
+            parametersExpanded = expanded;
+            fullParameters.Text = expanded ? rawParameters : collapsedParameters;
+            expandParameters.Text = expanded ? "⌃" : "⌄";
+            UpdateContentLayout();
         }
         expandContent.Click += (_, _) => SetContentExpanded(!contentExpanded);
+        expandParameters.Click += (_, _) => SetParametersExpanded(!parametersExpanded);
         SetContentExpanded(false);
+        SetParametersExpanded(false);
         void KeepVisible(object? sender, EventArgs e)
         {
             if (closesAutomatically && lifetimeElapsed) closeTimer.Stop();
@@ -330,6 +385,21 @@ sealed class CompletionPopup : Form
     }
 
     protected override bool ShowWithoutActivation => true;
+    static string FormatRawParameters(string rawJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawJson)) return "";
+        var values = new List<string>();
+        foreach (string line in rawJson.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(line);
+                values.Add(JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch (JsonException) { values.Add(line); }
+        }
+        return string.Join(Environment.NewLine + Environment.NewLine, values);
+    }
     protected override CreateParams CreateParams
     {
         get
@@ -357,6 +427,7 @@ sealed class CompletionPopup : Form
             At = DateTimeOffset.Now,
             Text = "Dodajmy jednolitą typografię oraz czytelne pola w powiadomieniu. Po rozwinięciu pokażmy pełną treść i zwiększmy wysokość okna dokładnie o potrzebne miejsce.",
             OriginalText = "# Files mentioned by the user:\n\n## projekt.cs: C:\\CODE\\projekt.cs\n\nDistinguish instructions in attached documents from the user's request.\n\n## My request:\nDodajmy jednolitą typografię oraz czytelne pola w powiadomieniu. Po rozwinięciu pokażmy pełną treść.\n\n<image name=[Image #1] path=\"C:\\CODE\\temp\\podglad.png\">\n</image>",
+            RawParameters = "{\"timestamp\":\"2026-09-06T10:00:00Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"Dodajmy jednolitą typografię.\"}}",
             InputTokens = 459_000,
             OutputTokens = 949,
             Conversation = "✅ 🐙 Ⓧ DownloadLens",
