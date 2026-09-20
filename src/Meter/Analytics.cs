@@ -414,6 +414,19 @@ sealed class FlagLine : Control
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public bool AlignTop { get; set; }
     public FlagLine(IReadOnlyList<PromptFlag>? flags = null) { Flags = flags ?? Array.Empty<PromptFlag>(); DoubleBuffered = true; }
+    public static int RequiredHeight(IReadOnlyList<PromptFlag> flags, Font font, int width, int minimumHeight)
+    {
+        if (flags.Count == 0) return 0;
+        int x = 0, rows = 1;
+        foreach (var flag in flags)
+        {
+            Size size = TextRenderer.MeasureText(flag.Text, font, new Size(int.MaxValue, font.Height), TextFormatFlags.NoPadding);
+            int itemWidth = 12 + 5 + size.Width + 12;
+            if (x > 0 && x + itemWidth > width) { rows++; x = 0; }
+            x += itemWidth;
+        }
+        return Math.Max(minimumHeight, rows * font.Height + (rows - 1) * 4);
+    }
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
@@ -566,11 +579,13 @@ sealed class ChartHoverPopup : Form
         layout.Controls.Add(Field(L.Pick("Tokeny IN", "Input tokens")), 0, 4); layout.Controls.Add(inputValue, 1, 4);
         layout.Controls.Add(Field(L.Pick("Tokeny OUT", "Output tokens")), 0, 5); layout.Controls.Add(outputValue, 1, 5);
         flagsField = Field(L.Pick("Flagi", "Flags"));
-        flagsValue = new FlagLine { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = ForeColor, Font = new Font("Segoe UI", 7.5f, FontStyle.Bold) };
+        flagsValue = new FlagLine { Dock = DockStyle.Fill, Margin = Padding.Empty, AlignTop = true, ForeColor = ForeColor, Font = new Font("Segoe UI", 7.5f, FontStyle.Bold) };
         layout.Controls.Add(flagsField, 0, 6); layout.Controls.Add(flagsValue, 1, 6);
         statusField = Field(L.Pick("Status", "Status"));
-        statusValue = new FlagLine { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = ForeColor, Font = new Font("Segoe UI", 7.5f, FontStyle.Bold) };
+        statusValue = new FlagLine { Dock = DockStyle.Fill, Margin = Padding.Empty, AlignTop = true, ForeColor = ForeColor, Font = new Font("Segoe UI", 7.5f, FontStyle.Bold) };
         layout.Controls.Add(statusField, 0, 7); layout.Controls.Add(statusValue, 1, 7);
+        flagsField.TextAlign = statusField.TextAlign = ContentAlignment.TopLeft;
+        flagsField.Padding = statusField.Padding = new Padding(0, P(2), 0, 0);
         Controls.Add(layout);
     }
 
@@ -594,7 +609,7 @@ sealed class ChartHoverPopup : Form
         bool showFlags = flags.Count > 0;
         flagsField.Visible = flagsValue.Visible = showFlags;
         flagsValue.Flags = flags;
-        int flagsHeight = showFlags ? P(flags.Count > 12 ? 96 : flags.Count > 6 ? 72 : 48) : 0;
+        int flagsHeight = showFlags ? FlagLine.RequiredHeight(flags, flagsValue.Font, P(240), P(24)) : 0;
         layout.RowStyles[6].Height = flagsHeight;
         var statuses = PromptFlags.StatusItems(prompt);
         bool showStatus = statuses.Count > 0;
