@@ -332,12 +332,12 @@ class ConversationLine : Control
         base.OnPaint(e);
         var g = e.Graphics;
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        string prefix = time + " ·";
+        string prefix = string.IsNullOrWhiteSpace(time) ? "" : time + " ·";
         var prefixSize = TextRenderer.MeasureText(g, prefix, Font, Size.Empty, TextFormatFlags.NoPadding);
         int y = Math.Max(0, (Height - prefixSize.Height) / 2);
         TextRenderer.DrawText(g, prefix, Font, new Point(0, y), ForeColor, TextFormatFlags.NoPadding);
         int iconSize = Math.Min(Height - 2, Math.Max(14, (int)Math.Round(14 * DeviceDpi / 96f)));
-        int x = prefixSize.Width + 4;
+        int x = prefixSize.Width + (prefix.Length > 0 ? 4 : 0);
         foreach (string icon in icons)
         {
             DrawIcon(g, icon, new Rectangle(x, Math.Max(0, (Height - iconSize) / 2), iconSize, iconSize));

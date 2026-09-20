@@ -48,11 +48,18 @@ static class Program
         // Keep the taskbar window separate from the fixed MSIX package icon.
         // Windows can then use the live meter icon assigned to the window.
         SetCurrentProcessExplicitAppUserModelID("Artllex.CodexMeter.Dynamic");
-        using var mutex = new Mutex(true, args.Contains("--selftest") ? "Local\\CodexMeterPreview" : "Local\\CodexMeterArkadiusz", out bool first);
+        using var mutex = new Mutex(true, args.Contains("--selftest") || args.Contains("--popup-preview") ? "Local\\CodexMeterPreview" : "Local\\CodexMeterArkadiusz", out bool first);
         if (!first) { AppMessages.ShowExisting(); return; }
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+        if (args.Contains("--popup-preview"))
+        {
+            string output = args.SkipWhile(x => x != "--popup-preview").Skip(1).FirstOrDefault()
+                ?? Path.Combine(AppContext.BaseDirectory, "popup-preview.png");
+            CompletionPopup.ExportPreview(Path.GetFullPath(output));
+            return;
+        }
         if (args.Contains("--selftest"))
         {
             try
@@ -109,23 +116,24 @@ sealed class CompletionPopup : Form
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 5,
+            ColumnCount = 2,
+            RowCount = 6,
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, P(116)));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(34)));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(48)));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(34)));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(34)));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(34)));
+        for (int row = 0; row < 5; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(30)));
 
+        var fieldColor = Color.FromArgb(170, 170, 170);
+        var valueColor = Color.FromArgb(242, 242, 242);
         var title = new Label
         {
             Dock = DockStyle.Fill,
             Text = "Zakończono przetwarzanie",
-            Font = new Font("Segoe UI", 12, FontStyle.Bold),
-            ForeColor = ForeColor,
+            Font = new Font("Segoe UI", 11, FontStyle.Bold),
+            ForeColor = valueColor,
             TextAlign = ContentAlignment.MiddleLeft
         };
         string preview = string.Join(" ", prompt.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
@@ -134,26 +142,21 @@ sealed class CompletionPopup : Form
         string model = string.IsNullOrWhiteSpace(prompt.Model) ? "Model: niedostępny" : prompt.Model;
         string effort = string.IsNullOrWhiteSpace(prompt.ReasoningEffort) ? "myślenie: niedostępne" : "myślenie: " + prompt.ReasoningEffort;
         var itemFont = new Font("Segoe UI", 9.5f);
-        var captionFont = new Font("Segoe UI", 7.5f, FontStyle.Bold);
-        string inputText = "IN " + Short(prompt.InputTokens);
-        string outputText = "  OUT " + Short(prompt.OutputTokens);
-        var tokens = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Margin = Padding.Empty, BackColor = Color.FromArgb(45, 45, 45), Padding = new Padding(P(10), P(4), P(10), P(3)) };
-        tokens.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        tokens.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        tokens.RowStyles.Add(new RowStyle(SizeType.Absolute, P(20)));
-        tokens.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        tokens.Controls.Add(new Label { Text = "TOKENY WEJŚCIOWE", Dock = DockStyle.Fill, Font = captionFont, ForeColor = Color.FromArgb(155, 155, 155), TextAlign = ContentAlignment.BottomLeft }, 0, 0);
-        tokens.Controls.Add(new Label { Text = "TOKENY WYJŚCIOWE", Dock = DockStyle.Fill, Font = captionFont, ForeColor = Color.FromArgb(155, 155, 155), TextAlign = ContentAlignment.BottomLeft }, 1, 0);
-        tokens.Controls.Add(new Label { Text = inputText, Dock = DockStyle.Fill, Font = itemFont, ForeColor = Color.FromArgb(77, 183, 229), TextAlign = ContentAlignment.MiddleLeft }, 0, 1);
-        tokens.Controls.Add(new Label { Text = outputText.TrimStart(), Dock = DockStyle.Fill, Font = itemFont, ForeColor = Color.FromArgb(129, 230, 184), TextAlign = ContentAlignment.MiddleLeft }, 1, 1);
-        var content = new Label { Text = "ZAPYTANIE  ·  " + preview, Dock = DockStyle.Fill, Font = itemFont, ForeColor = ForeColor, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty, Padding = new Padding(0, P(5), 0, 0) };
-        var context = new ConversationLine("ROZMOWA", conversation) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = ForeColor, Padding = new Padding(0, P(3), 0, 0) };
-        var settings = new Label { Text = "MODEL  ·  " + $"{model} · {effort}", Dock = DockStyle.Fill, Font = itemFont, ForeColor = Color.FromArgb(210, 210, 210), AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty, Padding = new Padding(0, P(3), 0, 0) };
+        Label FieldLabel(string text) => new() { Text = text, Dock = DockStyle.Fill, Font = itemFont, ForeColor = fieldColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
+        Label FieldValue(string text) => new() { Text = text, Dock = DockStyle.Fill, Font = itemFont, ForeColor = valueColor, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
+        var context = new ConversationLine("", conversation) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = valueColor, Font = itemFont };
         layout.Controls.Add(title, 0, 0);
-        layout.Controls.Add(tokens, 0, 1);
-        layout.Controls.Add(content, 0, 2);
-        layout.Controls.Add(context, 0, 3);
-        layout.Controls.Add(settings, 0, 4);
+        layout.SetColumnSpan(title, 2);
+        layout.Controls.Add(FieldLabel("Tokeny IN"), 0, 1);
+        layout.Controls.Add(FieldValue(Short(prompt.InputTokens)), 1, 1);
+        layout.Controls.Add(FieldLabel("Tokeny OUT"), 0, 2);
+        layout.Controls.Add(FieldValue(Short(prompt.OutputTokens)), 1, 2);
+        layout.Controls.Add(FieldLabel("Zapytanie"), 0, 3);
+        layout.Controls.Add(FieldValue(preview), 1, 3);
+        layout.Controls.Add(FieldLabel("Rozmowa"), 0, 4);
+        layout.Controls.Add(context, 1, 4);
+        layout.Controls.Add(FieldLabel("Model"), 0, 5);
+        layout.Controls.Add(FieldValue($"{model} · {effort}"), 1, 5);
         Controls.Add(layout);
         foreach (Control control in Controls.Cast<Control>().Append(this)) control.Click += (_, _) => Close();
         closeTimer.Tick += (_, _) => { closeTimer.Stop(); Close(); };
@@ -184,6 +187,27 @@ sealed class CompletionPopup : Form
         Reposition();
         popup.Show();
         popup.closeTimer.Start();
+    }
+
+    public static void ExportPreview(string path)
+    {
+        var sample = new PromptUsage
+        {
+            At = DateTimeOffset.Now,
+            Text = "Dodajmy jednolitą typografię oraz czytelne pola w powiadomieniu.",
+            InputTokens = 459_000,
+            OutputTokens = 949,
+            Conversation = "✅ 🐙 Ⓧ DownloadLens",
+            Model = "gpt-5.6-terra",
+            ReasoningEffort = "low"
+        };
+        using var popup = new CompletionPopup(sample);
+        popup.Show();
+        Application.DoEvents();
+        using var image = new Bitmap(popup.Width, popup.Height);
+        popup.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
+        image.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+        popup.Hide();
     }
 
     static void Reposition()
