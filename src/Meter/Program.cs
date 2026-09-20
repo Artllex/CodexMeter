@@ -48,6 +48,22 @@ sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
         using var pen = new Pen(Color.FromArgb(78, 78, 78));
         e.Graphics.DrawLine(pen, 6, e.Item.Height / 2, e.Item.Width - 6, e.Item.Height / 2);
     }
+    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+    {
+        int left = e.TextRectangle.Left;
+        var rowTextBounds = new Rectangle(
+            left,
+            0,
+            Math.Max(1, e.Item.Width - left - 6),
+            e.Item.Height);
+        TextRenderer.DrawText(
+            e.Graphics,
+            e.Text,
+            e.TextFont,
+            rowTextBounds,
+            e.TextColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+    }
 }
 
 static class AppMessages
@@ -211,13 +227,20 @@ sealed class CompletionPopup : Form
         Panel ModelValue()
         {
             var host = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
-            int modelWidth = TextRenderer.MeasureText(model + " · ", itemFont, Size.Empty, TextFormatFlags.NoPadding).Width;
-            int prefixWidth = TextRenderer.MeasureText(thinkingPrefix, itemFont, Size.Empty, TextFormatFlags.NoPadding).Width;
-            var modelLabel = new Label { Text = model + " · ", Dock = DockStyle.Left, Width = modelWidth, AutoSize = false, Font = itemFont, ForeColor = valueColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
-            var prefixLabel = new Label { Text = thinkingPrefix, Dock = DockStyle.Left, Width = prefixWidth, AutoSize = false, Font = itemFont, ForeColor = valueColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
-            host.Controls.Add(FieldValue(thinkingValue, ThinkingColor(reasoningEffort)));
-            host.Controls.Add(prefixLabel);
-            host.Controls.Add(modelLabel);
+            host.Paint += (_, e) =>
+            {
+                const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
+                string modelText = model + " · ";
+                int textHeight = TextRenderer.MeasureText("Ag", itemFont, Size.Empty, flags).Height;
+                int y = Math.Max(0, (host.ClientSize.Height - textHeight) / 2);
+                int x = 0;
+                TextRenderer.DrawText(e.Graphics, modelText, itemFont, new Point(x, y), valueColor, flags);
+                x += TextRenderer.MeasureText(modelText, itemFont, Size.Empty, flags).Width;
+                TextRenderer.DrawText(e.Graphics, thinkingPrefix, itemFont, new Point(x, y), valueColor, flags);
+                x += TextRenderer.MeasureText(thinkingPrefix, itemFont, Size.Empty, flags).Width;
+                TextRenderer.DrawText(e.Graphics, thinkingValue, itemFont, new Point(x, y), ThinkingColor(reasoningEffort), flags);
+            };
+            host.Resize += (_, _) => host.Invalidate();
             return host;
         }
         string conversationOrder = prompt.ConversationIndex > 0 ? $"[{prompt.ConversationIndex}] " : "";
@@ -1169,7 +1192,12 @@ class MeterForm : Form
                 {
                     if (filter.Length > 0 && choices[i].IndexOf(filter, StringComparison.CurrentCultureIgnoreCase) < 0) continue;
                     int index = i; var item = menu.Items.Add((i == selected ? "✓  " : "    ") + choices[i]);
-                    item.Padding = new Padding(S(5), S(2), S(5), S(2));
+                    // Keep ordinary dropdown entries at the same 30-logical-pixel
+                    // row height as searchable conversation rows.
+                    item.AutoSize = false;
+                    item.Size = new Size(S(width), S(30));
+                    item.Padding = new Padding(S(5), 0, S(5), 0);
+                    item.TextAlign = ContentAlignment.MiddleLeft;
                     item.MouseEnter += (_, _) => { item.BackColor = DarkMenuRenderer.HoverColor; item.Invalidate(); };
                     item.MouseLeave += (_, _) => { item.BackColor = Color.Empty; item.Invalidate(); };
                     item.Click += (_, _) =>
