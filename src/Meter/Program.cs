@@ -145,7 +145,8 @@ sealed class CompletionPopup : Form
         var activityFlags = PromptFlags.Items(prompt);
         var statusFlags = PromptFlags.StatusItems(prompt);
         bool hasPromptFlags = activityFlags.Count > 0, hasPromptStatus = statusFlags.Count > 0;
-        int flagsHeight = activityFlags.Count > 14 ? 60 : activityFlags.Count > 7 ? 42 : 24;
+        var popupFlagFont = new Font("Segoe UI", 7.3f);
+        int flagsHeight = hasPromptFlags ? FlagLine.RequiredHeight(activityFlags, popupFlagFont, P(306), P(24)) : 0;
         int statusHeight = hasPromptStatus ? 24 : 0;
         string projectLocation = prompt.ProjectLocation;
         bool hasProjectLocation = !string.IsNullOrWhiteSpace(projectLocation);
@@ -209,7 +210,8 @@ sealed class CompletionPopup : Form
         Panel ModelValue()
         {
             var host = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
-            var modelLabel = new Label { Text = model + " · ", Dock = DockStyle.Left, AutoSize = true, Font = itemFont, ForeColor = valueColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
+            int modelWidth = TextRenderer.MeasureText(model + " · ", itemFont, Size.Empty, TextFormatFlags.NoPadding).Width;
+            var modelLabel = new Label { Text = model + " · ", Dock = DockStyle.Left, Width = modelWidth, AutoSize = false, Font = itemFont, ForeColor = valueColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
             host.Controls.Add(FieldValue(effort, ThinkingColor(reasoningEffort)));
             host.Controls.Add(modelLabel);
             return host;
@@ -267,10 +269,14 @@ sealed class CompletionPopup : Form
         if (hasPromptFlags)
         {
             var flagsLabel = FieldLabel(L.Pick("Flagi", "Flags"));
-            flagsLabel.TextAlign = ContentAlignment.TopLeft;
-            flagsLabel.Padding = new Padding(0, P(2), 0, 0);
+            bool flagsWrap = flagsHeight > P(24);
+            if (flagsWrap)
+            {
+                flagsLabel.TextAlign = ContentAlignment.TopLeft;
+                flagsLabel.Padding = new Padding(0, P(2), 0, 0);
+            }
             layout.Controls.Add(flagsLabel, 0, flagsRow);
-            layout.Controls.Add(new FlagLine(activityFlags) { Dock = DockStyle.Fill, Margin = Padding.Empty, AlignTop = true, ForeColor = valueColor, Font = new Font("Segoe UI", 7.3f) }, 1, flagsRow);
+            layout.Controls.Add(new FlagLine(activityFlags) { Dock = DockStyle.Fill, Margin = Padding.Empty, AlignTop = flagsWrap, ForeColor = valueColor, Font = popupFlagFont }, 1, flagsRow);
         }
         if (hasPromptStatus)
         {
