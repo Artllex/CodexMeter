@@ -1099,9 +1099,9 @@ class MeterForm : Form
         var button = new Button { Text = text, Location = new Point(S(17), S(y)), Size = new Size(S(283), S(30)), TextAlign = ContentAlignment.MiddleLeft, FlatStyle = FlatStyle.Flat, ForeColor = ForeColor, BackColor = BackColor, TabStop = true };
         button.FlatAppearance.BorderSize = 0; body.Controls.Add(button); return button;
     }
-    Button SelectAt(string[] choices, int selected, int y, Action<int> changed, bool searchable = false, int x = 20, int width = 280, int verticalTextOffset = 0)
+    Button SelectAt(string[] choices, int selected, int y, Action<int> changed, bool searchable = false, int x = 20, int width = 280, int verticalTextOffset = 0, Func<int, string>? selectedLabel = null)
     {
-        var select = new Button { Text = choices[selected], Location = new Point(S(x), S(y)), Size = new Size(S(width), S(27)), Padding = new Padding(S(10), S(verticalTextOffset * 2), S(36), 0), FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, BackColor = Raised, ForeColor = MainText, Font = new Font("Segoe UI", 8.5f), TabStop = true };
+        var select = new Button { Text = selectedLabel?.Invoke(selected) ?? choices[selected], Location = new Point(S(x), S(y)), Size = new Size(S(width), S(27)), Padding = new Padding(S(10), S(verticalTextOffset * 2), S(36), 0), FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, BackColor = Raised, ForeColor = MainText, Font = new Font("Segoe UI", 8.5f), TabStop = true };
         select.FlatAppearance.BorderColor = Color.FromArgb(73, 73, 73);
         select.FlatAppearance.MouseOverBackColor = DarkMenuRenderer.HoverColor;
         select.FlatAppearance.MouseDownBackColor = DarkMenuRenderer.HoverColor;
@@ -1281,9 +1281,10 @@ class MeterForm : Form
     }
     int RenderChart(int y)
     {
-        SelectAt(L.Polish
+        var timeRanges = L.Polish
             ? new[] { "Wpisy (godzina)", "Wpisy (4 godziny)", "Dzień (24 godz.)", "Tydzień (7 dni)", "Miesiąc (30 dni)" }
-            : new[] { "Entries (hour)", "Entries (4 hours)", "Day (24 hours)", "Week (7 days)", "Month (30 days)" }, chartMode, y, i => chartMode = i, x: 20, width: 137, verticalTextOffset: 2);
+            : new[] { "Entries (hour)", "Entries (4 hours)", "Day (24 hours)", "Week (7 days)", "Month (30 days)" };
+        SelectAt(timeRanges, chartMode, y, i => chartMode = i, x: 20, width: 137, verticalTextOffset: 2, selectedLabel: i => timeRanges[i].Split(" (", StringSplitOptions.None)[0]);
         SelectAt(
             L.Polish ? new[] { "Tokeny IN", "Tokeny OUT" } : new[] { "Input", "Output" },
             chartTokenMode,
