@@ -225,17 +225,15 @@ static class Analytics
     static void DetectToolUsage(JsonElement payload, PromptUsage prompt)
     {
         string payloadType = Str(payload, "type");
+        if (payloadType is not ("function_call" or "custom_tool_call")) return;
         string name = Str(payload, "name");
         string raw = payload.GetRawText();
-        if (payloadType is "function_call" or "custom_tool_call")
-        {
-            string input = Str(payload, "arguments");
-            if (input.Length == 0) input = Str(payload, "input");
-            string searchable = name + " " + input;
-            if (System.Text.RegularExpressions.Regex.IsMatch(searchable, @"(?i)apply_patch|dotnet\s+(?:build|publish|test)|npm\s+(?:run\s+)?(?:build|test)|pytest|cargo\s+(?:build|test)|go\s+test|(?:src|source)[\\/]|\.(?:cs|csproj|cpp|c|h|py|js|ts|tsx|jsx|rs|go|java|kt|swift|php|rb|vue|svelte)\b")) prompt.WorkedOnCode = true;
-            if (System.Text.RegularExpressions.Regex.IsMatch(searchable, @"(?i)\bgit\s+(?:-c\s+\S+\s+)*commit\b")) prompt.GitCommit = true;
-            if (searchable.Contains("image_gen", StringComparison.OrdinalIgnoreCase) || searchable.Contains("imagegen", StringComparison.OrdinalIgnoreCase)) prompt.GeneratedPicture = true;
-        }
+        string input = Str(payload, "arguments");
+        if (input.Length == 0) input = Str(payload, "input");
+        string searchable = name + " " + input;
+        if (System.Text.RegularExpressions.Regex.IsMatch(searchable, @"(?i)apply_patch|dotnet\s+(?:build|publish|test)|npm\s+(?:run\s+)?(?:build|test)|pytest|cargo\s+(?:build|test)|go\s+test|(?:src|source)[\\/]|\.(?:cs|csproj|cpp|c|h|py|js|ts|tsx|jsx|rs|go|java|kt|swift|php|rb|vue|svelte)\b")) prompt.WorkedOnCode = true;
+        if (System.Text.RegularExpressions.Regex.IsMatch(searchable, @"(?i)\bgit\s+(?:-c\s+\S+\s+)*commit\b")) prompt.GitCommit = true;
+        if (searchable.Contains("image_gen", StringComparison.OrdinalIgnoreCase) || searchable.Contains("imagegen", StringComparison.OrdinalIgnoreCase)) prompt.GeneratedPicture = true;
         foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(raw, @"mcp__([A-Za-z0-9_]+)__([A-Za-z0-9_]+)"))
             prompt.McpTools.Add(match.Groups[1].Value + ": " + match.Groups[2].Value);
         if (raw.Contains("image_gen__imagegen", StringComparison.OrdinalIgnoreCase)) prompt.GeneratedPicture = true;
@@ -281,6 +279,7 @@ static class Analytics
         Add("event_msg", new { type = "thread_settings_applied", thread_settings = new { model = "gpt-test", reasoning_effort = "high" } });
         Add("event_msg", new { type = "task_started", turn_id = "a" });
         Add("response_item", new { role = "user", content = new[] { new { text = "Pierwszy prompt" } } });
+        Add("response_item", new { type = "custom_tool_call_output", output = "Tekst wyniku zawiera mcp__figma__get_file, image_gen__imagegen oraz git commit, ale nie jest wywołaniem." });
         void Tokens(long total, long last, long input, long output, string at) => Add("event_msg", new { type = "token_count", info = new { total_token_usage = new { total_tokens = total, input_tokens = input, output_tokens = output }, last_token_usage = new { total_tokens = last, input_tokens = Math.Min(input, last), output_tokens = Math.Min(output, last) } } }, at);
         Tokens(100, 100, 80, 20, "2026-09-06T10:00:01Z"); Tokens(100, 100, 80, 20, "2026-09-06T10:00:02Z"); Tokens(150, 50, 120, 30, "2026-09-06T10:00:03Z");
         Add("event_msg", new { type = "task_complete" });
@@ -295,7 +294,9 @@ static class Analytics
         var result = Parse(path);
         var flagged = result.Prompts[1];
         if (result.Samples.Sum(x => x.Tokens) != 175 || result.Prompts.Count != 2 || result.Prompts[0].Tokens != 150 || result.Prompts[0].InputTokens != 120 || result.Prompts[0].OutputTokens != 30 || flagged.Tokens != 25 || flagged.Text != "Drugi prompt" || !flagged.OriginalText.Contains("## My request:") || flagged.OriginalText.Contains("&#x20;") || result.Prompts[0].Model != "gpt-test" || result.Prompts[0].ReasoningEffort != "high") throw new Exception("Błąd sumowania tokenów lub metadanych promptu.");
+        if (result.Prompts[0].WorkedOnCode || result.Prompts[0].GitCommit || result.Prompts[0].GeneratedPicture || result.Prompts[0].McpTools.Count > 0) throw new Exception("Tekst wyniku narzędzia został błędnie uznany za wykonaną akcję.");
         if (flagged.PictureCount != 1 || flagged.FileCount != 1 || !flagged.WorkedOnCode || !flagged.GitCommit || !flagged.GeneratedPicture || !flagged.McpTools.Contains("figma: get_file")) throw new Exception("Błąd wykrywania flag aktywności promptu.");
+        if (PromptContent.Sections("Zwykłe zapytanie").FirstOrDefault()?.Title != "My request") throw new Exception("Zwykłe zapytanie nie trafiło do sekcji My request.");
         return "PASS: deltas, prompt boundaries, metadata and activity flags";
     }
 }
@@ -336,7 +337,8 @@ sealed class FlagLine : Control
         foreach (var flag in flags)
         {
             Size size = TextRenderer.MeasureText(flag.Text, Font, new Size(int.MaxValue, Font.Height), TextFormatFlags.NoPadding);
-            int itemWidth = 10 + size.Width + 12;
+            const int iconSize = 12;
+            int itemWidth = iconSize + 5 + size.Width + 12;
             if (x > 0 && x + itemWidth > Width)
             {
                 x = 0;
@@ -344,8 +346,8 @@ sealed class FlagLine : Control
             }
             if (y + Font.Height > Height) break;
             using var brush = new SolidBrush(flag.Color);
-            e.Graphics.FillEllipse(brush, x, y + Math.Max(1, (Font.Height - 7) / 2), 7, 7);
-            TextRenderer.DrawText(e.Graphics, flag.Text, Font, new Point(x + 11, y), ForeColor, TextFormatFlags.NoPadding);
+            e.Graphics.FillEllipse(brush, x, y + Math.Max(0, (Font.Height - iconSize) / 2), iconSize, iconSize);
+            TextRenderer.DrawText(e.Graphics, flag.Text, Font, new Point(x + iconSize + 5, y), ForeColor, TextFormatFlags.NoPadding);
             x += itemWidth;
         }
     }
@@ -361,7 +363,7 @@ static class PromptContent
         var files = new List<string>();
         var pictures = new List<string>();
         var technical = new List<string>();
-        List<string> current = technical;
+        List<string> current = request;
         foreach (string line in original.Replace("\r\n", "\n").Split('\n'))
         {
             string trimmed = line.Trim();
