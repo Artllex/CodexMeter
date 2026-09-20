@@ -6,8 +6,7 @@ no independent analytics, advertising or developer-operated backend.
 
 The collector reads local Codex sessions and archived sessions, processing prompt
 text for optional ranking. It saves account usage snapshots, account identifiers
-and token history under LocalAppData/CodexMeter/data. The widget reads the local
-latest.json file through the registered provider.
+and token history under LocalAppData/CodexMeter/data.
 
 The release contains no author account snapshots, credentials, chat transcripts,
 private signing keys, diagnostic logs or local source-path configuration.

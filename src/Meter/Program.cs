@@ -32,13 +32,6 @@ static class Program
             logo.Save(output, System.Drawing.Imaging.ImageFormat.Png);
             return;
         }
-        if (args.Contains("--export-gpt-branding"))
-        {
-            string root = args.SkipWhile(x => x != "--export-gpt-branding").Skip(1).FirstOrDefault()
-                ?? throw new ArgumentException("Brak katalogu projektu dla eksportu brandingu.");
-            TrayGauge.ExportBranding(Path.GetFullPath(root));
-            return;
-        }
         if (args.Contains("--probe"))
         {
             try { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "probe.json"), Api.Read().GetAwaiter().GetResult().ToJsonString(new JsonSerializerOptions { WriteIndented = true })); }
@@ -286,68 +279,6 @@ static class TrayGauge
 
     public static Bitmap CreateLogo(int size) => Render(size, "GPT", 24);
 
-    public static void ExportBranding(string projectRoot)
-    {
-        string images = Path.Combine(projectRoot, "src", "WidgetPackage", "Images");
-        string provider = Path.Combine(projectRoot, "src", "WidgetPackage", "ProviderAssets");
-        string meterAssets = Path.Combine(projectRoot, "src", "Meter", "assets");
-        SavePng(Path.Combine(provider, "CodexMeter_Icon.png"), 1254, 1254, 0.92f);
-        SavePng(Path.Combine(images, "Square150x150Logo.png"), 300, 300, 0.82f);
-        SavePng(Path.Combine(images, "Square150x150Logo.scale-200.png"), 300, 300, 0.82f);
-        SavePng(Path.Combine(images, "Square44x44Logo.png"), 88, 88, 0.86f);
-        SavePng(Path.Combine(images, "Square44x44Logo.scale-200.png"), 88, 88, 0.86f);
-        SavePng(Path.Combine(images, "Square44x44Logo.targetsize-24_altform-unplated.png"), 24, 24, 0.96f);
-        SavePng(Path.Combine(images, "StoreLogo.png"), 50, 50, 0.88f);
-        SavePng(Path.Combine(images, "LockScreenLogo.scale-200.png"), 48, 48, 0.88f);
-        SavePng(Path.Combine(images, "Wide310x150Logo.png"), 620, 300, 0.82f);
-        SavePng(Path.Combine(images, "Wide310x150Logo.scale-200.png"), 620, 300, 0.82f);
-        SavePng(Path.Combine(images, "SplashScreen.png"), 1240, 600, 0.82f);
-        SavePng(Path.Combine(images, "SplashScreen.scale-200.png"), 1240, 600, 0.82f);
-        SaveIco(Path.Combine(meterAssets, "codex-info.ico"));
-    }
-
-    static void SavePng(string path, int width, int height, float fill)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        using var canvas = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        using var graphics = Graphics.FromImage(canvas);
-        graphics.Clear(Color.Transparent);
-        graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-        graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-        int size = Math.Max(1, (int)Math.Round(Math.Min(width, height) * fill));
-        using var logo = CreateLogo(size);
-        graphics.DrawImage(logo, (width - size) / 2, (height - size) / 2, size, size);
-        canvas.Save(path, System.Drawing.Imaging.ImageFormat.Png);
-    }
-
-    static void SaveIco(string path)
-    {
-        int[] sizes = { 16, 20, 24, 32, 40, 48, 64, 128, 256 };
-        var images = new List<byte[]>();
-        foreach (int size in sizes)
-        {
-            using var bitmap = CreateLogo(size);
-            using var stream = new MemoryStream();
-            bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
-            images.Add(stream.ToArray());
-        }
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        using var file = File.Create(path);
-        using var writer = new BinaryWriter(file);
-        writer.Write((ushort)0); writer.Write((ushort)1); writer.Write((ushort)sizes.Length);
-        int offset = 6 + 16 * sizes.Length;
-        for (int i = 0; i < sizes.Length; i++)
-        {
-            writer.Write((byte)(sizes[i] == 256 ? 0 : sizes[i]));
-            writer.Write((byte)(sizes[i] == 256 ? 0 : sizes[i]));
-            writer.Write((byte)0); writer.Write((byte)0);
-            writer.Write((ushort)1); writer.Write((ushort)32);
-            writer.Write(images[i].Length); writer.Write(offset);
-            offset += images[i].Length;
-        }
-        foreach (byte[] image in images) writer.Write(image);
-    }
 
     static Bitmap Render(int size, string value, double usedPercent)
     {
@@ -660,19 +591,6 @@ class MeterForm : Form
     }
     public void VerifyInteractions()
     {
-        var chartData = new JsonObject();
-        var chartSamples = new List<TokenSample>
-        {
-            new("widget-test-1", DateTimeOffset.UtcNow.AddMinutes(-30), 125),
-            new("widget-test-2", DateTimeOffset.UtcNow.AddMinutes(-90), 375)
-        };
-        AddWidgetUsageRanges(chartData, new LocalUsage(chartSamples, new(), 1, 0));
-        if (chartData["widgetHourlyUsage"]?["buckets"] is not JsonArray widgetBuckets || widgetBuckets.Count != 24 || chartData["widgetHourlyUsage"]?["totalTokens"]?.GetValue<long>() != 500)
-            throw new InvalidOperationException("Błąd danych wykresu 24 h dla widżetu.");
-        if (chartData["widgetUsageRanges"]?["7d"]?["buckets"] is not JsonArray sevenDayBuckets || sevenDayBuckets.Count != 7 ||
-            chartData["widgetUsageRanges"]?["8h"]?["buckets"] is not JsonArray eightHourBuckets || eightHourBuckets.Count != 8 ||
-            chartData["widgetUsageRanges"]?["1h"]?["buckets"] is not JsonArray oneHourBuckets || oneHourBuckets.Count != 12)
-            throw new InvalidOperationException("Błąd zakresów 7d/8h/1h dla wykresu widżetu.");
         var taskbarDeadline = DateTime.UtcNow.AddSeconds(7);
         while (!taskbarMeterApplied && DateTime.UtcNow < taskbarDeadline)
         {
@@ -776,15 +694,6 @@ class MeterForm : Form
         try
         {
             var next = await Api.Read();
-            try
-            {
-                var localUsage = local ?? await Task.Run(Analytics.Read);
-                AddWidgetUsageRanges(next, localUsage);
-            }
-            catch (Exception ex)
-            {
-                next["widgetHourlyUsageError"] = ex.Message;
-            }
             if (IsDisposed) return;
             Directory.CreateDirectory(dataDir);
             File.WriteAllText(Path.Combine(dataDir, "latest.tmp"), next.ToJsonString());
@@ -803,76 +712,6 @@ class MeterForm : Form
             }
         }
         finally { busy = false; }
-    }
-    static void AddWidgetUsageRanges(JsonObject target, LocalUsage localUsage)
-    {
-        var now = DateTimeOffset.UtcNow;
-        var currentHour = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, 0, 0, TimeSpan.Zero);
-        JsonObject HourRange(int hours)
-        {
-            var buckets = new JsonArray();
-            long total = 0;
-            for (int index = hours - 1; index >= 0; index--)
-            {
-                var start = currentHour.AddHours(-index);
-                var end = start.AddHours(1);
-                long tokens = localUsage.Samples.Where(sample => sample.At >= start && sample.At < end).Sum(sample => sample.Tokens);
-                total += tokens;
-                buckets.Add(new JsonObject { ["start"] = start.ToString("O"), ["tokens"] = tokens });
-            }
-            return new JsonObject
-            {
-                ["buckets"] = buckets,
-                ["totalTokens"] = total,
-                ["from"] = currentHour.AddHours(-(hours - 1)).ToLocalTime().ToString("HH:mm"),
-                ["to"] = "teraz"
-            };
-        }
-
-        var sevenDays = new JsonArray();
-        long sevenDayTotal = 0;
-        var localToday = DateTime.Today;
-        for (int index = 6; index >= 0; index--)
-        {
-            var day = localToday.AddDays(-index);
-            long tokens = localUsage.Samples.Where(sample => sample.At.ToLocalTime().Date == day).Sum(sample => sample.Tokens);
-            sevenDayTotal += tokens;
-            sevenDays.Add(new JsonObject { ["start"] = day.ToString("yyyy-MM-dd"), ["tokens"] = tokens });
-        }
-
-        var currentFiveMinutes = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, now.Minute / 5 * 5, 0, TimeSpan.Zero);
-        var oneHour = new JsonArray();
-        long oneHourTotal = 0;
-        for (int index = 11; index >= 0; index--)
-        {
-            var start = currentFiveMinutes.AddMinutes(-5 * index);
-            var end = start.AddMinutes(5);
-            long tokens = localUsage.Samples.Where(sample => sample.At >= start && sample.At < end).Sum(sample => sample.Tokens);
-            oneHourTotal += tokens;
-            oneHour.Add(new JsonObject { ["start"] = start.ToString("O"), ["tokens"] = tokens });
-        }
-
-        var twentyFourHours = HourRange(24);
-        target["widgetHourlyUsage"] = JsonNode.Parse(twentyFourHours.ToJsonString());
-        target["widgetUsageRanges"] = new JsonObject
-        {
-            ["7d"] = new JsonObject
-            {
-                ["buckets"] = sevenDays,
-                ["totalTokens"] = sevenDayTotal,
-                ["from"] = localToday.AddDays(-6).ToString("dd.MM"),
-                ["to"] = "dzisiaj"
-            },
-            ["24h"] = twentyFourHours,
-            ["8h"] = HourRange(8),
-            ["1h"] = new JsonObject
-            {
-                ["buckets"] = oneHour,
-                ["totalTokens"] = oneHourTotal,
-                ["from"] = currentFiveMinutes.AddMinutes(-55).ToLocalTime().ToString("HH:mm"),
-                ["to"] = "teraz"
-            }
-        };
     }
     Label TextAt(string text, int x, int y, int width, int height, float size = 10, Color? color = null, bool bold = false)
     {
