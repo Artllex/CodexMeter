@@ -1282,9 +1282,10 @@ class MeterForm : Form
     int RenderChart(int y)
     {
         var timeRanges = L.Polish
-            ? new[] { "Wpisy (godzina)", "Wpisy (4 godziny)", "Dzień (24 godz.)", "Tydzień (7 dni)", "Miesiąc (30 dni)" }
-            : new[] { "Entries (hour)", "Entries (4 hours)", "Day (24 hours)", "Week (7 days)", "Month (30 days)" };
-        SelectAt(timeRanges, chartMode, y, i => chartMode = i, x: 20, width: 137, verticalTextOffset: 2, selectedLabel: i => timeRanges[i].Split(" (", StringSplitOptions.None)[0]);
+            ? new[] { "Wpisy (godzina)", "Wpisy (4 godziny)", "Dzień (24 godz.)", "Tydzień (7 dni)" }
+            : new[] { "Entries (hour)", "Entries (4 hours)", "Day (24 hours)", "Week (7 days)" };
+        chartMode = Math.Clamp(chartMode, 0, timeRanges.Length - 1);
+        SelectAt(timeRanges, chartMode, y, i => chartMode = i, x: 20, width: 137, selectedLabel: i => timeRanges[i].Split(" (", StringSplitOptions.None)[0]);
         SelectAt(
             L.Polish ? new[] { "Tokeny IN", "Tokeny OUT" } : new[] { "Input", "Output" },
             chartTokenMode,
@@ -1342,7 +1343,7 @@ class MeterForm : Form
         1 => TimeSpan.FromHours(4),
         2 => TimeSpan.FromHours(24),
         3 => TimeSpan.FromDays(7),
-        _ => TimeSpan.FromDays(30)
+        _ => TimeSpan.FromDays(7)
     };
     IEnumerable<string> ChartConversations()
     {
