@@ -404,12 +404,14 @@ sealed class FlagLine : Control
     IReadOnlyList<PromptFlag> flags = Array.Empty<PromptFlag>();
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public IReadOnlyList<PromptFlag> Flags { get => flags; set { flags = value; Invalidate(); } }
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool AlignTop { get; set; }
     public FlagLine(IReadOnlyList<PromptFlag>? flags = null) { Flags = flags ?? Array.Empty<PromptFlag>(); DoubleBuffered = true; }
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
         e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-        int x = 0, y = Math.Max(0, (Height - Font.Height) / 2);
+        int x = 0, y = AlignTop ? 0 : Math.Max(0, (Height - Font.Height) / 2);
         foreach (var flag in flags)
         {
             Size size = TextRenderer.MeasureText(flag.Text, Font, new Size(int.MaxValue, Font.Height), TextFormatFlags.NoPadding);
