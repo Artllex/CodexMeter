@@ -2,6 +2,8 @@
 
 Windows application that displays Codex usage in a compact panel, on the taskbar and in the notification area.
 
+The interface follows the Windows display language: Polish for Polish Windows, English for every other system language.
+
 ## Features
 
 - Dynamic percentage meter on the taskbar and in the notification area.

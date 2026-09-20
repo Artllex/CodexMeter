@@ -297,7 +297,7 @@ class UsageChart : Control
             g.DrawString(last, font, dim, Width - right - g.MeasureString(last, font).Width, baseline + 6);
         }
     }
-    public static string Short(long n) => n >= 1000000 ? $"{n / 1000000.0:0.#} mln" : n >= 1000 ? $"{n / 1000.0:0.#} tys." : n.ToString();
+    public static string Short(long n) => L.Short(n);
     protected override void Dispose(bool disposing) { if (disposing) tip.Dispose(); base.Dispose(disposing); }
 }
 

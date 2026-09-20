@@ -6,6 +6,17 @@ using System.Runtime.InteropServices;
 
 namespace CodexMeter;
 
+static class L
+{
+    public static bool Polish => CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("pl", StringComparison.OrdinalIgnoreCase);
+    public static CultureInfo Culture => Polish ? CultureInfo.GetCultureInfo("pl-PL") : CultureInfo.GetCultureInfo("en-US");
+    public static string Pick(string pl, string en) => Polish ? pl : en;
+    public static string NoData => Pick("brak danych", "no data");
+    public static string LocalConversation => Pick("Rozmowa lokalna", "Local conversation");
+    public static string Thinking(string effort) => string.IsNullOrWhiteSpace(effort) ? Pick("myślenie: niedostępne", "thinking: unavailable") : Pick("myślenie: ", "thinking: ") + effort;
+    public static string Short(long value) => value >= 1_000_000 ? $"{value / 1_000_000.0:0.#}{Pick(" mln", "M")}" : value >= 1_000 ? $"{value / 1_000.0:0.#}{Pick(" tys.", "K")}" : value.ToString("N0", Culture);
+}
+
 static class AppMessages
 {
     const int HWND_BROADCAST = 0xFFFF;
@@ -124,31 +135,31 @@ sealed class CompletionPopup : Form
         var title = new Label
         {
             Dock = DockStyle.Fill,
-            Text = "Zakończono przetwarzanie",
+            Text = L.Pick("Zakończono przetwarzanie", "Processing completed"),
             Font = new Font("Segoe UI", 11, FontStyle.Bold),
             ForeColor = valueColor,
             TextAlign = ContentAlignment.MiddleLeft
         };
         string preview = string.Join(" ", prompt.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         if (preview.Length > 34) preview = preview[..34] + "…";
-        string conversation = string.IsNullOrWhiteSpace(prompt.Conversation) ? "Rozmowa lokalna" : prompt.Conversation;
-        string model = string.IsNullOrWhiteSpace(prompt.Model) ? "Model: niedostępny" : prompt.Model;
-        string effort = string.IsNullOrWhiteSpace(prompt.ReasoningEffort) ? "myślenie: niedostępne" : "myślenie: " + prompt.ReasoningEffort;
+        string conversation = string.IsNullOrWhiteSpace(prompt.Conversation) ? L.LocalConversation : prompt.Conversation;
+        string model = string.IsNullOrWhiteSpace(prompt.Model) ? L.Pick("niedostępny", "unavailable") : prompt.Model;
+        string effort = L.Thinking(prompt.ReasoningEffort);
         var itemFont = new Font("Segoe UI", 9.5f);
         Label FieldLabel(string text) => new() { Text = text, Dock = DockStyle.Fill, Font = itemFont, ForeColor = fieldColor, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
         Label FieldValue(string text) => new() { Text = text, Dock = DockStyle.Fill, Font = itemFont, ForeColor = valueColor, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
         var context = new ConversationLine("", conversation) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = valueColor, Font = itemFont };
         layout.Controls.Add(title, 0, 0);
         layout.SetColumnSpan(title, 2);
-        layout.Controls.Add(FieldLabel("Tokeny IN"), 0, 1);
+        layout.Controls.Add(FieldLabel(L.Pick("Tokeny IN", "Input tokens")), 0, 1);
         layout.Controls.Add(FieldValue(Short(prompt.InputTokens)), 1, 1);
-        layout.Controls.Add(FieldLabel("Tokeny OUT"), 0, 2);
+        layout.Controls.Add(FieldLabel(L.Pick("Tokeny OUT", "Output tokens")), 0, 2);
         layout.Controls.Add(FieldValue(Short(prompt.OutputTokens)), 1, 2);
-        layout.Controls.Add(FieldLabel("Zapytanie"), 0, 3);
+        layout.Controls.Add(FieldLabel(L.Pick("Zapytanie", "Prompt")), 0, 3);
         layout.Controls.Add(FieldValue(preview), 1, 3);
-        layout.Controls.Add(FieldLabel("Rozmowa"), 0, 4);
+        layout.Controls.Add(FieldLabel(L.Pick("Rozmowa", "Conversation")), 0, 4);
         layout.Controls.Add(context, 1, 4);
-        layout.Controls.Add(FieldLabel("Model"), 0, 5);
+        layout.Controls.Add(FieldLabel(L.Pick("Model", "Model")), 0, 5);
         layout.Controls.Add(FieldValue($"{model} · {effort}"), 1, 5);
         Controls.Add(layout);
         foreach (Control control in Controls.Cast<Control>().Append(this)) control.Click += (_, _) => Close();
@@ -216,7 +227,7 @@ sealed class CompletionPopup : Form
         }
     }
 
-    static string Short(long value) => value >= 1_000_000 ? $"{value / 1_000_000.0:0.#} mln" : value >= 1_000 ? $"{value / 1_000.0:0.#} tys." : value.ToString("N0", CultureInfo.GetCultureInfo("pl-PL"));
+    static string Short(long value) => L.Short(value);
 }
 
 static class Api
@@ -379,16 +390,16 @@ class MeterForm : Form
     double? latestUsed;
     bool taskbarMeterApplied;
     bool taskbarButtonCreated;
-    string taskbarMeterResult = "nie uruchomiono";
+    string taskbarMeterResult = "not started";
     readonly float layoutScale;
     int S(int value) => Math.Max(1, (int)Math.Round(value * layoutScale));
     JsonObject? current;
-    static string Number(long n) => n.ToString("N0", CultureInfo.GetCultureInfo("pl-PL"));
+    static string Number(long n) => n.ToString("N0", L.Culture);
     public MeterForm(bool test = false)
     {
         appIcon = LoadAppIcon();
         using (var graphics = Graphics.FromHwnd(IntPtr.Zero)) layoutScale = graphics.DpiX / 96f;
-        Text = "Codex"; ClientSize = new Size(S(320), S(300)); AutoScaleMode = AutoScaleMode.None;
+        Text = "Codex Meter"; ClientSize = new Size(S(320), S(300)); AutoScaleMode = AutoScaleMode.None;
         FormBorderStyle = FormBorderStyle.None; MaximizeBox = false; MinimizeBox = true;
         BackColor = Surface; ForeColor = MainText; Font = new Font("Segoe UI", 9);
         StartPosition = FormStartPosition.Manual; ShowInTaskbar = true; Icon = appIcon;
@@ -399,11 +410,11 @@ class MeterForm : Form
         BuildTitleBar();
         Controls.Add(body); body.BringToFront(); titleBar.BringToFront();
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Pokaż zużycie", null, (_, _) => Reveal());
-        menu.Items.Add("Odśwież", null, async (_, _) => { await RefreshData(); await RefreshLocal(); });
-        var xBehavior = new ToolStripMenuItem("Przycisk X");
-        var minimizeWithX = new ToolStripMenuItem("Minimalizuj do paska zadań") { Checked = keepOnTaskbar };
-        var closeWithX = new ToolStripMenuItem("Ukryj z paska zadań — zostaw w zasobniku") { Checked = !keepOnTaskbar };
+        menu.Items.Add(L.Pick("Pokaż zużycie", "Show usage"), null, (_, _) => Reveal());
+        menu.Items.Add(L.Pick("Odśwież", "Refresh"), null, async (_, _) => { await RefreshData(); await RefreshLocal(); });
+        var xBehavior = new ToolStripMenuItem(L.Pick("Przycisk X", "X button"));
+        var minimizeWithX = new ToolStripMenuItem(L.Pick("Minimalizuj do paska zadań", "Minimize to taskbar")) { Checked = keepOnTaskbar };
+        var closeWithX = new ToolStripMenuItem(L.Pick("Ukryj z paska zadań — zostaw w zasobniku", "Hide from taskbar — keep in notification area")) { Checked = !keepOnTaskbar };
         void SetXBehavior(bool keep)
         {
             keepOnTaskbar = keep;
@@ -417,8 +428,8 @@ class MeterForm : Form
         xBehavior.DropDownItems.Add(closeWithX);
         menu.Items.Add(xBehavior);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Zakończ", null, (_, _) => { quitting = true; Close(); });
-        tray = new NotifyIcon { Icon = Icon, Text = "Codex — odczytywanie zużycia", Visible = true, ContextMenuStrip = menu };
+        menu.Items.Add(L.Pick("Zakończ", "Exit"), null, (_, _) => { quitting = true; Close(); });
+        tray = new NotifyIcon { Icon = Icon, Text = L.Pick("Codex Meter — odczytywanie zużycia", "Codex Meter — reading usage"), Visible = true, ContextMenuStrip = menu };
         tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) Reveal(); };
         FormClosed += (_, _) =>
         {
@@ -512,7 +523,9 @@ class MeterForm : Form
         ApplyTaskbarMeter();
         previous?.Dispose();
         string resetText = reset.HasValue ? DateTimeOffset.FromUnixTimeSeconds(reset.Value).ToLocalTime().ToString("dd.MM HH:mm") : "?";
-        string tooltip = $"ChatGPT/Codex: {used:0.#}% użyte · {remaining:0.#}% zostało · reset {resetText}";
+        string tooltip = L.Polish
+            ? $"Codex Meter: {used:0.#}% użyte · {remaining:0.#}% zostało · reset {resetText}"
+            : $"Codex Meter: {used:0.#}% used · {remaining:0.#}% remaining · reset {resetText}";
         tray.Text = tooltip.Length <= 63 ? tooltip : tooltip[..63];
     }
     void ApplyTaskbarMeter()
@@ -540,10 +553,10 @@ class MeterForm : Form
     void BuildTitleBar()
     {
         titleBar.BackColor = Surface;
-        var title = new Label { Text = "Codex", Location = new Point(S(14), 0), Size = new Size(S(250), S(36)), TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", 10), ForeColor = MainText };
+        var title = new Label { Text = "Codex Meter", Location = new Point(S(14), 0), Size = new Size(S(250), S(36)), TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", 10), ForeColor = MainText };
         var close = new Button { Text = "X", Location = new Point(S(278), 0), Size = new Size(S(42), S(36)), TabStop = false, FlatStyle = FlatStyle.Flat, BackColor = Raised, ForeColor = MainText, Font = new Font("Segoe UI", 8) };
         close.FlatAppearance.BorderSize = 0; close.FlatAppearance.MouseOverBackColor = Color.FromArgb(196, 43, 28); close.FlatAppearance.MouseDownBackColor = Color.FromArgb(153, 30, 22);
-        tips.SetToolTip(close, "Minimalizuj lub ukryj do zasobnika — zgodnie z ustawieniem PPM");
+        tips.SetToolTip(close, L.Pick("Minimalizuj lub ukryj do zasobnika — zgodnie z ustawieniem PPM", "Minimize or hide in the notification area — based on the right-click setting"));
         close.Click += (_, _) => Close();
         void Drag(object? sender, MouseEventArgs e) { if (e.Button == MouseButtons.Left) { ReleaseCapture(); SendMessage(Handle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero); } }
         titleBar.MouseDown += Drag; title.MouseDown += Drag;
@@ -686,11 +699,11 @@ class MeterForm : Form
     }
     void LoadCache()
     {
-        try { current = JsonNode.Parse(File.ReadAllText(Path.Combine(dataDir, "latest.json"))) as JsonObject; Render(); status.Text = "Aktualizowanie…"; } catch { }
+        try { current = JsonNode.Parse(File.ReadAllText(Path.Combine(dataDir, "latest.json"))) as JsonObject; Render(); status.Text = L.Pick("Aktualizowanie…", "Updating…"); } catch { }
     }
     async Task RefreshData()
     {
-        if (busy) return; busy = true; status.Text = "Aktualizowanie…";
+        if (busy) return; busy = true; status.Text = L.Pick("Aktualizowanie…", "Updating…");
         try
         {
             var next = await Api.Read();
@@ -705,10 +718,10 @@ class MeterForm : Form
         {
             if (!IsDisposed)
             {
-                status.Text = "Dane nieaktualne · ponowię za 3 min";
+                status.Text = L.Pick("Dane nieaktualne · ponowię za 3 min", "Data is stale · retrying in 3 min");
                 tips.SetToolTip(status, ex.Message);
                 remoteError = ex.Message;
-                tray.Text = "Codex — dane nieaktualne";
+                tray.Text = L.Pick("Codex Meter — dane nieaktualne", "Codex Meter — data is stale");
             }
         }
         finally { busy = false; }
@@ -732,28 +745,28 @@ class MeterForm : Form
         var reset = window?["resetsAt"]?.GetValue<long?>();
         var remaining = used.HasValue ? Math.Clamp(100 - used.Value, 0, 100) : (double?)null;
         var accent = remaining <= 10 ? Color.FromArgb(255, 180, 90) : Accent;
-        TextAt("Pozostały limit", 20, 14, 280, 23, 9, MutedText);
+        TextAt(L.Pick("Pozostały limit", "Remaining limit"), 20, 14, 280, 23, 9, MutedText);
         TextAt(remaining.HasValue ? $"{remaining:0.#}%" : "—", 19, 37, 280, 34, 20, accent, true);
         var bar = new Panel { Location = new Point(S(20), S(78)), Size = new Size(S(280), S(4)), BackColor = Color.FromArgb(48, 53, 62) };
         if (remaining.HasValue) bar.Controls.Add(new Panel { BackColor = accent, Size = new Size((int)Math.Round(S(280) * remaining.Value / 100), S(4)) });
         body.Controls.Add(bar);
-        var resetLabel = TextAt("Reset: " + (reset.HasValue ? DateTimeOffset.FromUnixTimeSeconds(reset.Value).ToLocalTime().ToString("dd.MM · HH:mm") : "brak danych"), 20, 93, 280, 20, 8, MutedText);
-        tips.SetToolTip(resetLabel, "Limit Codex o największym wykorzystaniu. Czas lokalny.");
+        var resetLabel = TextAt(L.Pick("Reset: ", "Reset: ") + (reset.HasValue ? DateTimeOffset.FromUnixTimeSeconds(reset.Value).ToLocalTime().ToString("dd.MM · HH:mm", L.Culture) : L.NoData), 20, 93, 280, 20, 8, MutedText);
+        tips.SetToolTip(resetLabel, L.Pick("Limit Codex o największym wykorzystaniu. Czas lokalny.", "The Codex limit with the highest usage. Local time."));
         var todayStart = DateTime.Today;
         long? today = local == null ? null : local.Samples.Where(x => x.At.ToLocalTime().Date == todayStart).Sum(x => x.Tokens);
-        TextAt("Tokeny dzisiaj", 20, 130, 140, 23, 9, MutedText);
-        var todayValue = TextAt(today.HasValue ? Number(today.Value) : "brak danych", 155, 130, 145, 23);
+        TextAt(L.Pick("Tokeny dzisiaj", "Tokens today"), 20, 130, 140, 23, 9, MutedText);
+        var todayValue = TextAt(today.HasValue ? Number(today.Value) : L.NoData, 155, 130, 145, 23);
         todayValue.TextAlign = ContentAlignment.TopRight;
-        tips.SetToolTip(todayValue, "Tokeny z lokalnie zapisanych sesji Codex od północy czasu Windows.");
-        status.Text = current?["fetchedAt"] is JsonNode stamp && DateTimeOffset.TryParse(stamp.ToString(), out var time) ? "Aktualizacja " + time.ToLocalTime().ToString("HH:mm") : "Oczekiwanie na dane…";
-        tips.SetToolTip(status, "Odświeżanie co 3 minuty. Odśwież ręcznie w menu ikony przy zegarze.");
-        if (remoteError != null) { status.Text = "Dane nieaktualne · ponowię za 3 min"; tips.SetToolTip(status, remoteError); }
+        tips.SetToolTip(todayValue, L.Pick("Tokeny z lokalnie zapisanych sesji Codex od północy czasu Windows.", "Tokens from locally stored Codex sessions since local midnight."));
+        status.Text = current?["fetchedAt"] is JsonNode stamp && DateTimeOffset.TryParse(stamp.ToString(), out var time) ? L.Pick("Aktualizacja ", "Updated ") + time.ToLocalTime().ToString("HH:mm", L.Culture) : L.Pick("Oczekiwanie na dane…", "Waiting for data…");
+        tips.SetToolTip(status, L.Pick("Odświeżanie co 3 minuty. Odśwież ręcznie w menu ikony przy zegarze.", "Refreshes every 3 minutes. Refresh manually from the notification-area icon menu."));
+        if (remoteError != null) { status.Text = L.Pick("Dane nieaktualne · ponowię za 3 min", "Data is stale · retrying in 3 min"); tips.SetToolTip(status, remoteError); }
         int y = 166;
-        var chartToggle = SectionButton((chartOpen ? "▾" : "▸") + "  Wykres użycia", y);
+        var chartToggle = SectionButton((chartOpen ? "▾" : "▸") + "  " + L.Pick("Wykres użycia", "Usage chart"), y);
         chartToggle.Click += async (_, _) => { chartOpen = !chartOpen; Render(); if (chartOpen && local == null) await RefreshLocal(); };
         y += 34;
         if (chartOpen) y = RenderChart(y);
-        var promptHistoryToggle = SectionButton((promptHistoryOpen ? "▾" : "▸") + "  Ostatnie prompty", y);
+        var promptHistoryToggle = SectionButton((promptHistoryOpen ? "▾" : "▸") + "  " + L.Pick("Ostatnie prompty", "Recent prompts"), y);
         promptHistoryToggle.Click += async (_, _) => { promptHistoryOpen = !promptHistoryOpen; Render(); if (promptHistoryOpen && local == null) await RefreshLocal(); };
         y += 34;
         if (promptHistoryOpen) y = RenderPromptHistory(y);
@@ -763,7 +776,7 @@ class MeterForm : Form
         body.Size = new Size(ClientSize.Width, ClientSize.Height - titleBar.Height);
         body.AutoScrollMinSize = new Size(0, S(targetHeight));
         if (used.HasValue) UpdateTrayGauge(used, remaining, reset);
-        else tray.Text = "ChatGPT — brak danych o wykorzystaniu";
+        else tray.Text = L.Pick("Codex Meter — brak danych o wykorzystaniu", "Codex Meter — no usage data");
         body.ResumeLayout();
         ResumeLayout();
         PositionPanel();
@@ -805,15 +818,17 @@ class MeterForm : Form
     }
     int RenderChart(int y)
     {
-        SelectAt(new[] { "Godzinowy · ostatnie 24 h", "Dzienny · ostatnie 30 dni", "Tygodniowy · ostatnie 12 tyg.", "Miesięczny · ostatnie 12 mies." }, chartMode, y, i => chartMode = i);
+        SelectAt(L.Polish
+            ? new[] { "Godzinowy · ostatnie 24 h", "Dzienny · ostatnie 30 dni", "Tygodniowy · ostatnie 12 tyg.", "Miesięczny · ostatnie 12 mies." }
+            : new[] { "Hourly · last 24 h", "Daily · last 30 days", "Weekly · last 12 weeks", "Monthly · last 12 months" }, chartMode, y, i => chartMode = i);
         y += 33;
         var points = ChartPoints();
         if (chartMode == 0 && local == null)
-            TextAt(localBusy ? "Odczytywanie historii…" : "Brak lokalnych danych", 20, y, 280, 150, 9, Color.Gray);
+            TextAt(localBusy ? L.Pick("Odczytywanie historii…", "Reading history…") : L.Pick("Brak lokalnych danych", "No local data"), 20, y, 280, 150, 9, Color.Gray);
         else body.Controls.Add(new UsageChart(points) { Location = new Point(S(20), S(y)), Size = new Size(S(280), S(150)), BackColor = BackColor });
         y += 155;
-        var caption = TextAt(chartMode == 0 ? "Lokalnie · czas Windows" : "Konto · kreska = brak danych", 20, y, 280, 21, 8, Color.Gray);
-        tips.SetToolTip(caption, chartMode == 0 ? "Tokeny z zapisanych lokalnie sesji, również pomocniczych. Pozostałe urządzenia nie są uwzględnione. Najedź na punkt, aby zobaczyć liczbę." : "Dni według serwera. Tygodnie od poniedziałku, miesiące kalendarzowe. Niepełne okresy zawierają tylko dostępne dni — szczegóły po najechaniu.");
+        var caption = TextAt(chartMode == 0 ? L.Pick("Lokalnie · czas Windows", "Local · Windows time") : L.Pick("Konto · kreska = brak danych", "Account · dash = no data"), 20, y, 280, 21, 8, Color.Gray);
+        tips.SetToolTip(caption, chartMode == 0 ? L.Pick("Tokeny z zapisanych lokalnie sesji, również pomocniczych. Pozostałe urządzenia nie są uwzględnione. Najedź na punkt, aby zobaczyć liczbę.", "Tokens from locally stored sessions, including helper sessions. Other devices are not included. Hover a point to see its value.") : L.Pick("Dni według serwera. Tygodnie od poniedziałku, miesiące kalendarzowe. Niepełne okresy zawierają tylko dostępne dni — szczegóły po najechaniu.", "Days come from the server. Weeks start Monday and months are calendar months. Incomplete periods include only available days — hover for details."));
         return y + 28;
     }
     List<ChartBucket> ChartPoints()
@@ -828,7 +843,7 @@ class MeterForm : Form
                 var start = hour.AddHours(-i); var end = start.AddHours(1);
                 long? total = local == null ? null : local.Samples.Where(x => x.At >= start && x.At < end).Sum(x => x.Tokens);
                 string label = start.ToLocalTime().ToString("HH:mm");
-                points.Add(new ChartBucket(label, total, start.ToLocalTime().ToString("dd.MM HH:mm") + " · " + (total.HasValue ? Number(total.Value) : "brak danych") + " tokenów lokalnie"));
+                points.Add(new ChartBucket(label, total, start.ToLocalTime().ToString("g", L.Culture) + " · " + (total.HasValue ? Number(total.Value) : L.NoData) + L.Pick(" tokenów lokalnie", " local tokens")));
             }
             return points;
         }
@@ -848,21 +863,21 @@ class MeterForm : Form
             int expected = (int)(end - start).TotalDays;
             string label = start.ToString(chartMode == 3 ? "MM.yy" : "dd.MM");
             string detail = start.ToString("dd.MM.yyyy") + (chartMode == 1 ? "" : " – " + end.AddDays(-1).ToString("dd.MM.yyyy"));
-            detail += tokens.HasValue ? "\n" + Number(tokens.Value) + " tokenów" : "\nBrak danych";
-            if (chartMode != 1) detail += $"\nDostępne dni: {available.Count}/{expected}";
+            detail += tokens.HasValue ? "\n" + Number(tokens.Value) + L.Pick(" tokenów", " tokens") : "\n" + L.Pick("Brak danych", "No data");
+            if (chartMode != 1) detail += L.Pick($"\nDostępne dni: {available.Count}/{expected}", $"\nAvailable days: {available.Count}/{expected}");
             points.Add(new ChartBucket(label, tokens, detail));
         }
         return points;
     }
     int RenderPromptHistory(int y)
     {
-        var note = TextAt("Lokalna historia · 5 najnowszych", 20, y, 280, 20, 8, MutedText);
-        tips.SetToolTip(note, "Pięć ostatnich promptów zapisanych przez Codex Meter. Kliknij pozycję, aby zobaczyć treść, datę i liczbę tokenów.");
+        var note = TextAt(L.Pick("Lokalna historia · 5 najnowszych", "Local history · 5 newest"), 20, y, 280, 20, 8, MutedText);
+        tips.SetToolTip(note, L.Pick("Pięć ostatnich promptów zapisanych przez Codex Meter. Kliknij pozycję, aby zobaczyć treść, datę i liczbę tokenów.", "The five most recent prompts saved by Codex Meter. Click an item to see its text, date, and token count."));
         y += 23;
         var prompts = local?.Prompts.OrderByDescending(x => x.At).Take(5).ToList();
         if (prompts == null || prompts.Count == 0)
         {
-            var label = TextAt(localBusy ? "Odczytywanie historii…" : localError != null ? "Nie udało się odczytać historii" : "Brak zapisanych promptów", 20, y, 280, 30, 9, Color.Gray);
+            var label = TextAt(localBusy ? L.Pick("Odczytywanie historii…", "Reading history…") : localError != null ? L.Pick("Nie udało się odczytać historii", "Could not read history") : L.Pick("Brak zapisanych promptów", "No saved prompts"), 20, y, 280, 30, 9, Color.Gray);
             if (localError != null) tips.SetToolTip(label, localError);
             return y + 35;
         }
@@ -873,10 +888,10 @@ class MeterForm : Form
             var prompt = prompts[i]; var position = i + 1;
             string preview = string.Join(" ", prompt.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
             if (preview.Length > 26) preview = preview[..26] + "…";
-            string conversation = string.IsNullOrWhiteSpace(prompt.Conversation) ? "Rozmowa lokalna" : prompt.Conversation;
+            string conversation = string.IsNullOrWhiteSpace(prompt.Conversation) ? L.LocalConversation : prompt.Conversation;
             if (conversation.Length > 27) conversation = conversation[..27] + "…";
-            string model = string.IsNullOrWhiteSpace(prompt.Model) ? "Model: niedostępny" : prompt.Model;
-            string effort = string.IsNullOrWhiteSpace(prompt.ReasoningEffort) ? "myślenie: niedostępne" : "myślenie: " + prompt.ReasoningEffort;
+            string model = string.IsNullOrWhiteSpace(prompt.Model) ? L.Pick("niedostępny", "unavailable") : prompt.Model;
+            string effort = L.Thinking(prompt.ReasoningEffort);
             var row = new Panel { Location = new Point(0, S(i * rowHeight)), Size = new Size(S(265), S(rowHeight - 1)), Cursor = Cursors.Hand };
             var inputText = "IN " + UsageChart.Short(prompt.InputTokens);
             var outputText = "  OUT " + UsageChart.Short(prompt.OutputTokens);
@@ -889,7 +904,7 @@ class MeterForm : Form
             var context = new ConversationLine(prompt.At.ToLocalTime().ToString("HH:mm"), conversation) { Location = new Point(S(4), S(21)), Size = new Size(S(257), S(18)), ForeColor = ForeColor };
             var settings = new Label { Text = $"{model} · {effort}", Location = new Point(S(4), S(40)), Size = new Size(S(257), S(18)), Font = itemFont, ForeColor = ForeColor };
             row.Controls.Add(input); row.Controls.Add(output); row.Controls.Add(content); row.Controls.Add(context); row.Controls.Add(settings);
-            string tooltip = $"Prompt {position} · IN {Number(prompt.InputTokens)} · OUT {Number(prompt.OutputTokens)}\n{prompt.At.ToLocalTime():dd.MM.yyyy HH:mm}\n{conversation}\n{model} · {effort}" + (prompt.Complete ? "" : " · w toku / brak zakończenia");
+            string tooltip = $"{L.Pick("Prompt", "Prompt")} {position} · IN {Number(prompt.InputTokens)} · OUT {Number(prompt.OutputTokens)}\n{prompt.At.ToLocalTime():g}\n{conversation}\n{model} · {effort}" + (prompt.Complete ? "" : L.Pick(" · w toku / brak zakończenia", " · in progress / no completion"));
             foreach (Control control in row.Controls.Cast<Control>().Append(row))
             {
                 tips.SetToolTip(control, tooltip);
@@ -910,10 +925,10 @@ class MeterForm : Form
     Form CreatePromptDialog(PromptUsage prompt, int rank)
     {
         var dialog = new Form { Text = $"Prompt {rank}", ClientSize = new Size(S(470), S(290)), MinimumSize = new Size(S(340), S(230)), BackColor = BackColor, ForeColor = ForeColor, ShowInTaskbar = false, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = new Font("Segoe UI", 10), AutoScaleMode = AutoScaleMode.None };
-        string conversation = string.IsNullOrWhiteSpace(prompt.Conversation) ? "Rozmowa lokalna" : prompt.Conversation;
-        string model = string.IsNullOrWhiteSpace(prompt.Model) ? "Model: niedostępny" : prompt.Model;
-        string effort = string.IsNullOrWhiteSpace(prompt.ReasoningEffort) ? "myślenie: niedostępne" : "myślenie: " + prompt.ReasoningEffort;
-        var header = new Label { Dock = DockStyle.Top, Height = S(66), Padding = new Padding(S(12), S(8), 0, 0), Font = new Font("Segoe UI Emoji", 9), Text = $"{prompt.At.ToLocalTime():dd.MM.yyyy · HH:mm}    IN {Number(prompt.InputTokens)} · OUT {Number(prompt.OutputTokens)}\n{conversation}\n{model} · {effort}" };
+        string conversation = string.IsNullOrWhiteSpace(prompt.Conversation) ? L.LocalConversation : prompt.Conversation;
+        string model = string.IsNullOrWhiteSpace(prompt.Model) ? L.Pick("niedostępny", "unavailable") : prompt.Model;
+        string effort = L.Thinking(prompt.ReasoningEffort);
+        var header = new Label { Dock = DockStyle.Top, Height = S(66), Padding = new Padding(S(12), S(8), 0, 0), Font = new Font("Segoe UI Emoji", 9), Text = $"{prompt.At.ToLocalTime():g}    IN {Number(prompt.InputTokens)} · OUT {Number(prompt.OutputTokens)}\n{conversation}\n{model} · {effort}" };
         var text = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(30, 34, 42), ForeColor = ForeColor, Text = prompt.Text.Replace("\r\n", "\n").Replace("\n", Environment.NewLine) };
         var holder = new Panel { Dock = DockStyle.Fill, Padding = new Padding(S(12), 0, S(12), S(12)) }; holder.Controls.Add(text);
         dialog.Controls.Add(holder); dialog.Controls.Add(header);
