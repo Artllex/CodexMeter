@@ -140,15 +140,19 @@ sealed class CompletionPopup : Form
         using var screenGraphics = Graphics.FromHwnd(IntPtr.Zero);
         float dpiScale = Math.Max(1f, screenGraphics.DpiX / 96f);
         int P(int value) => Math.Max(1, (int)Math.Round(value * dpiScale));
-        string promptFlags = PromptFlags.Text(prompt);
-        bool hasPromptFlags = promptFlags.Length > 0;
+        var activityFlags = PromptFlags.Items(prompt);
+        var statusFlags = PromptFlags.StatusItems(prompt);
+        bool hasPromptFlags = activityFlags.Count > 0, hasPromptStatus = statusFlags.Count > 0;
+        int flagsHeight = activityFlags.Count > 12 ? 96 : activityFlags.Count > 6 ? 72 : 48;
+        int statusHeight = hasPromptStatus ? 30 : 0;
+        int metadataHeight = (hasPromptFlags ? flagsHeight : 0) + statusHeight;
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         TopMost = true;
         AutoScaleMode = AutoScaleMode.None;
-        ClientSize = new Size(P(440), P(hasPromptFlags ? 368 : 320));
+        ClientSize = new Size(P(440), P(320 + metadataHeight));
         BackColor = Color.FromArgb(35, 35, 35);
         ForeColor = Color.FromArgb(242, 242, 242);
         Padding = new Padding(P(12), P(10), P(12), P(10));
@@ -157,7 +161,7 @@ sealed class CompletionPopup : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = hasPromptFlags ? 10 : 9,
+            RowCount = 9 + (hasPromptFlags ? 1 : 0) + (hasPromptStatus ? 1 : 0),
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
@@ -165,7 +169,8 @@ sealed class CompletionPopup : Form
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(34)));
         for (int row = 0; row < 3; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(30)));
-        if (hasPromptFlags) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(48)));
+        if (hasPromptFlags) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(flagsHeight)));
+        if (hasPromptStatus) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(statusHeight)));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(8)));
         for (int row = 0; row < 2; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(30)));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(8)));
@@ -220,8 +225,10 @@ sealed class CompletionPopup : Form
         layout.Controls.Add(FieldValue($"{model} · {effort}"), 1, 2);
         layout.Controls.Add(FieldLabel(L.Pick("Zapytanie", "Prompt")), 0, 3);
         layout.Controls.Add(FieldValue(preview), 1, 3);
-        int flagsRow = 4;
-        int separatorRow = hasPromptFlags ? 5 : 4;
+        int nextMetadataRow = 4;
+        int flagsRow = hasPromptFlags ? nextMetadataRow++ : -1;
+        int statusRow = hasPromptStatus ? nextMetadataRow++ : -1;
+        int separatorRow = nextMetadataRow;
         int inputRow = separatorRow + 1;
         int outputRow = separatorRow + 2;
         int contentSeparatorRow = separatorRow + 3;
@@ -229,7 +236,12 @@ sealed class CompletionPopup : Form
         if (hasPromptFlags)
         {
             layout.Controls.Add(FieldLabel(L.Pick("Flagi", "Flags")), 0, flagsRow);
-            layout.Controls.Add(new FlagLine(PromptFlags.Items(prompt)) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = valueColor, Font = new Font("Segoe UI", 8.3f) }, 1, flagsRow);
+            layout.Controls.Add(new FlagLine(activityFlags) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = valueColor, Font = new Font("Segoe UI", 8.3f) }, 1, flagsRow);
+        }
+        if (hasPromptStatus)
+        {
+            layout.Controls.Add(FieldLabel(L.Pick("Status", "Status")), 0, statusRow);
+            layout.Controls.Add(new FlagLine(statusFlags) { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = valueColor, Font = new Font("Segoe UI", 8.3f, FontStyle.Bold) }, 1, statusRow);
         }
         layout.Controls.Add(separator, 0, separatorRow);
         layout.SetColumnSpan(separator, 2);
@@ -257,7 +269,7 @@ sealed class CompletionPopup : Form
             int textWidth = Math.Max(P(80), contentPanel.Width - (canExpandContent ? expandHost.Width : 0));
             int measuredHeight = TextRenderer.MeasureText(fullPrompt.Text, fullPrompt.Font, new Size(textWidth, int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl).Height;
             int contentHeight = Math.Max(P(32), measuredHeight + P(8));
-            int fixedPanelHeight = hasPromptFlags ? P(268) : P(220);
+            int fixedPanelHeight = P(220 + metadataHeight);
             if (expanded)
             {
                 int maximumClientHeight = (Screen.FromControl(this).WorkingArea.Height - P(24));
@@ -352,8 +364,18 @@ sealed class CompletionPopup : Form
             FileCount = 2,
             PictureCount = 1,
             WorkedOnCode = true,
+            TestsRun = true,
+            ProjectBuilt = true,
             GitCommit = true,
-            GeneratedPicture = true
+            GitPush = true,
+            PackageBuilt = true,
+            ReleaseCreated = true,
+            GeneratedPicture = true,
+            UsedWeb = true,
+            UsedBrowser = true,
+            DocumentsChanged = true,
+            AgentCount = 2,
+            Partial = true
         };
         sample.McpTools.Add("figma: get_file");
         using var popup = new CompletionPopup(sample);
@@ -988,9 +1010,9 @@ class MeterForm : Form
         var button = new Button { Text = text, Location = new Point(S(17), S(y)), Size = new Size(S(283), S(30)), TextAlign = ContentAlignment.MiddleLeft, FlatStyle = FlatStyle.Flat, ForeColor = ForeColor, BackColor = BackColor, TabStop = true };
         button.FlatAppearance.BorderSize = 0; body.Controls.Add(button); return button;
     }
-    Button SelectAt(string[] choices, int selected, int y, Action<int> changed, bool searchable = false, int x = 20, int width = 280)
+    Button SelectAt(string[] choices, int selected, int y, Action<int> changed, bool searchable = false, int x = 20, int width = 280, int verticalTextOffset = 0)
     {
-        var select = new Button { Text = choices[selected], Location = new Point(S(x), S(y)), Size = new Size(S(width), S(27)), Padding = new Padding(S(10), 0, S(36), 0), FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, BackColor = Raised, ForeColor = MainText, Font = new Font("Segoe UI", 8.5f), TabStop = true };
+        var select = new Button { Text = choices[selected], Location = new Point(S(x), S(y)), Size = new Size(S(width), S(27)), Padding = new Padding(S(10), S(verticalTextOffset * 2), S(36), 0), FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, BackColor = Raised, ForeColor = MainText, Font = new Font("Segoe UI", 8.5f), TabStop = true };
         select.FlatAppearance.BorderColor = Color.FromArgb(73, 73, 73);
         select.FlatAppearance.MouseOverBackColor = DarkMenuRenderer.HoverColor;
         select.FlatAppearance.MouseDownBackColor = DarkMenuRenderer.HoverColor;
@@ -1172,7 +1194,7 @@ class MeterForm : Form
     {
         SelectAt(L.Polish
             ? new[] { "Wpisy (godzina)", "Wpisy (4 godziny)", "Dzień (24 godz.)", "Tydzień (7 dni)", "Miesiąc (30 dni)" }
-            : new[] { "Entries (hour)", "Entries (4 hours)", "Day (24 hours)", "Week (7 days)", "Month (30 days)" }, chartMode, y, i => chartMode = i, x: 20, width: 137);
+            : new[] { "Entries (hour)", "Entries (4 hours)", "Day (24 hours)", "Week (7 days)", "Month (30 days)" }, chartMode, y, i => chartMode = i, x: 20, width: 137, verticalTextOffset: 2);
         SelectAt(
             L.Polish ? new[] { "Tokeny IN", "Tokeny OUT" } : new[] { "Input", "Output" },
             chartTokenMode,
@@ -1243,19 +1265,28 @@ class MeterForm : Form
             if (localError != null) tips.SetToolTip(label, localError);
             return y + 35;
         }
-        const int rowContentHeight = 137;
         const int rowGap = 8;
-        const int rowHeight = rowContentHeight + rowGap;
-        var list = new Panel { Location = new Point(S(17), S(y)), Size = new Size(S(286), S(prompts.Count * rowHeight)) };
+        var activityByPrompt = prompts.Select(PromptFlags.Items).ToList();
+        var statusByPrompt = prompts.Select(PromptFlags.StatusItems).ToList();
+        var contentHeights = Enumerable.Range(0, prompts.Count).Select(index =>
+        {
+            int flagsHeight = activityByPrompt[index].Count == 0 ? 0 : Math.Clamp(17 * (int)Math.Ceiling(activityByPrompt[index].Count / 3.0), 34, 102);
+            int statusHeight = statusByPrompt[index].Count > 0 ? 20 : 0;
+            return 101 + flagsHeight + statusHeight;
+        }).ToList();
+        int totalHeight = contentHeights.Sum() + prompts.Count * rowGap;
+        var list = new Panel { Location = new Point(S(17), S(y)), Size = new Size(S(286), S(totalHeight)) };
+        int rowTop = 0;
         for (int i = 0; i < prompts.Count; i++)
         {
             var prompt = prompts[i]; var position = i + 1;
+            int rowContentHeight = contentHeights[i];
             string preview = string.Join(" ", prompt.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
             if (preview.Length > 34) preview = preview[..34] + "…";
             string conversation = string.IsNullOrWhiteSpace(prompt.Conversation) ? L.LocalConversation : prompt.Conversation;
             string model = string.IsNullOrWhiteSpace(prompt.Model) ? L.Pick("niedostępny", "unavailable") : prompt.Model;
             string effort = L.Thinking(prompt.ReasoningEffort);
-            var row = new Panel { Location = new Point(0, S(i * rowHeight)), Size = new Size(S(280), S(rowContentHeight)), Cursor = Cursors.Hand };
+            var row = new Panel { Location = new Point(0, S(rowTop)), Size = new Size(S(280), S(rowContentHeight)), Cursor = Cursors.Hand };
             var itemFont = new Font("Segoe UI", 7.3f);
             Label Field(string text, int top) => new() { Text = text, Location = new Point(S(4), S(top)), Size = new Size(S(74), S(17)), Font = new Font("Segoe UI", 7.3f, FontStyle.Bold), ForeColor = MutedText };
             Label Value(string text, int top, Color? color = null) => new() { Text = text, Location = new Point(S(82), S(top)), Size = new Size(S(175), S(17)), Font = itemFont, ForeColor = color ?? ForeColor, AutoEllipsis = true };
@@ -1266,11 +1297,20 @@ class MeterForm : Form
             row.Controls.Add(Field(L.Pick("Zapytanie", "Prompt"), 38)); row.Controls.Add(Value(preview, 38));
             row.Controls.Add(Field(L.Pick("Tokeny IN", "Input tokens"), 57)); row.Controls.Add(Value(UsageChart.Short(prompt.InputTokens), 57, TokenVisuals.Input(prompt.InputTokens)));
             row.Controls.Add(Field(L.Pick("Tokeny OUT", "Output tokens"), 75)); row.Controls.Add(Value(UsageChart.Short(prompt.OutputTokens), 75, TokenVisuals.Output(prompt.OutputTokens)));
-            string flags = PromptFlags.Text(prompt);
-            if (flags.Length > 0)
+            var activityFlags = activityByPrompt[i];
+            int nextDetailTop = 93;
+            if (activityFlags.Count > 0)
             {
                 row.Controls.Add(Field(L.Pick("Flagi", "Flags"), 93));
-                row.Controls.Add(new FlagLine(PromptFlags.Items(prompt)) { Location = new Point(S(82), S(93)), Size = new Size(S(175), S(34)), ForeColor = ForeColor, Font = new Font("Segoe UI", 6.8f) });
+                int flagHeight = Math.Clamp(17 * (int)Math.Ceiling(activityFlags.Count / 3.0), 34, 102);
+                row.Controls.Add(new FlagLine(activityFlags) { Location = new Point(S(82), S(93)), Size = new Size(S(175), S(flagHeight)), ForeColor = ForeColor, Font = new Font("Segoe UI", 6.8f) });
+                nextDetailTop += flagHeight;
+            }
+            var statuses = statusByPrompt[i];
+            if (statuses.Count > 0)
+            {
+                row.Controls.Add(Field(L.Pick("Status", "Status"), nextDetailTop));
+                row.Controls.Add(new FlagLine(statuses) { Location = new Point(S(82), S(nextDetailTop)), Size = new Size(S(175), S(17)), ForeColor = ForeColor, Font = new Font("Segoe UI", 6.8f, FontStyle.Bold) });
             }
             string occurredAt = prompt.At.ToLocalTime().ToString("dd.MM.yyyy · HH:mm", L.Culture);
             foreach (Control control in row.Controls.Cast<Control>().Append(row))
@@ -1279,11 +1319,12 @@ class MeterForm : Form
                 tips.SetToolTip(control, occurredAt);
             }
             list.Controls.Add(row);
+            rowTop += rowContentHeight + rowGap;
             if (i < prompts.Count - 1)
-                list.Controls.Add(new Panel { Location = new Point(S(1), S((i + 1) * rowHeight - rowGap / 2)), Size = new Size(S(278), S(1)), BackColor = Color.FromArgb(96, 96, 96) });
+                list.Controls.Add(new Panel { Location = new Point(S(1), S(rowTop - rowGap / 2)), Size = new Size(S(278), S(1)), BackColor = Color.FromArgb(96, 96, 96) });
         }
         body.Controls.Add(list);
-        return y + prompts.Count * rowHeight + 2;
+        return y + totalHeight + 2;
     }
     void ShowPrompt(PromptUsage prompt, int rank)
     {

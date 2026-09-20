@@ -22,8 +22,24 @@ class PromptUsage
     public int FileCount { get; set; }
     public int PictureCount { get; set; }
     public bool WorkedOnCode { get; set; }
+    public bool TestsRun { get; set; }
+    public bool ProjectBuilt { get; set; }
     public bool GitCommit { get; set; }
+    public bool GitPush { get; set; }
+    public bool PullRequest { get; set; }
+    public bool PackageBuilt { get; set; }
+    public bool ReleaseCreated { get; set; }
     public bool GeneratedPicture { get; set; }
+    public bool UsedWeb { get; set; }
+    public bool UsedBrowser { get; set; }
+    public bool DependenciesChanged { get; set; }
+    public bool InstalledSoftware { get; set; }
+    public bool DocumentsChanged { get; set; }
+    public int AgentCount { get; set; }
+    public bool AutomationChanged { get; set; }
+    public bool Failed { get; set; }
+    public bool Cancelled { get; set; }
+    public bool Partial { get; set; }
     public HashSet<string> McpTools { get; } = new(StringComparer.OrdinalIgnoreCase);
 }
 record LocalUsage(List<TokenSample> Samples, List<PromptUsage> Prompts, int Files, int Errors);
@@ -104,7 +120,7 @@ static class Analytics
         string? line;
         while ((line = reader.ReadLine()) != null)
         {
-            if (!(line.Contains("session_meta") || line.Contains("thread_settings_applied") || line.Contains("turn_context") || line.Contains("token_count") || line.Contains("task_started") || line.Contains("task_complete") || line.Contains("user_message") || line.Contains("response_item"))) continue;
+            if (!(line.Contains("session_meta") || line.Contains("thread_settings_applied") || line.Contains("turn_context") || line.Contains("token_count") || line.Contains("task_started") || line.Contains("task_complete") || line.Contains("task_failed") || line.Contains("turn_aborted") || line.Contains("user_message") || line.Contains("response_item"))) continue;
             try
             {
                 using var doc = JsonDocument.Parse(line); var e = doc.RootElement;
@@ -166,7 +182,23 @@ static class Analytics
                 }
                 if (type == "event_msg" && kind == "task_complete")
                 {
-                    if (active != null) active.Complete = true;
+                    if (active != null)
+                    {
+                        active.Complete = true;
+                        string status = Str(p, "status");
+                        active.Failed = status.Equals("failed", StringComparison.OrdinalIgnoreCase);
+                        active.Cancelled = status.Equals("cancelled", StringComparison.OrdinalIgnoreCase) || status.Equals("canceled", StringComparison.OrdinalIgnoreCase);
+                        active.Partial = status.Equals("partial", StringComparison.OrdinalIgnoreCase);
+                    }
+                    active = null; continue;
+                }
+                if (type == "event_msg" && kind is "task_failed" or "turn_aborted")
+                {
+                    if (active != null)
+                    {
+                        active.Failed = kind == "task_failed";
+                        active.Cancelled = kind == "turn_aborted";
+                    }
                     active = null; continue;
                 }
                 if (type == "response_item" && active != null)
@@ -231,9 +263,24 @@ static class Analytics
         string input = Str(payload, "arguments");
         if (input.Length == 0) input = Str(payload, "input");
         string searchable = name + " " + input;
-        if (System.Text.RegularExpressions.Regex.IsMatch(searchable, @"(?i)apply_patch|dotnet\s+(?:build|publish|test)|npm\s+(?:run\s+)?(?:build|test)|pytest|cargo\s+(?:build|test)|go\s+test|(?:src|source)[\\/]|\.(?:cs|csproj|cpp|c|h|py|js|ts|tsx|jsx|rs|go|java|kt|swift|php|rb|vue|svelte)\b")) prompt.WorkedOnCode = true;
-        if (System.Text.RegularExpressions.Regex.IsMatch(searchable, @"(?i)\bgit\s+(?:-c\s+\S+\s+)*commit\b")) prompt.GitCommit = true;
+        bool Match(string pattern) => System.Text.RegularExpressions.Regex.IsMatch(searchable, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        prompt.WorkedOnCode |= Match(@"apply_patch|tools\.apply_patch|(?:edit|write)_(?:file|code)");
+        prompt.TestsRun |= Match(@"\bdotnet\s+test\b|\bnpm\s+(?:run\s+)?test\b|\bpytest\b|\bcargo\s+test\b|\bgo\s+test\b|--selftest\b|\bvalidate(?:\.py)?\b");
+        prompt.ProjectBuilt |= Match(@"\bdotnet\s+build\b|\bnpm\s+run\s+build\b|\bcargo\s+build\b|\bgo\s+build\b|\bmsbuild\b");
+        prompt.GitCommit |= Match(@"\bgit\s+(?:-c\s+\S+\s+)*commit\b");
+        prompt.GitPush |= Match(@"\bgit\s+(?:-c\s+\S+\s+)*push\b");
+        prompt.PullRequest |= Match(@"\bgh\s+pr\s+(?:create|edit|merge)\b|attach_artifact[\s\S]*pull_request|pull_request[\s\S]*(?:create|update|merge)");
+        prompt.PackageBuilt |= Match(@"\bdotnet\s+publish\b|\bnpm\s+pack\b|\bcargo\s+package\b|\bCompress-Archive\b|\bISCC(?:\.exe)?\b|\bmakeappx(?:\.exe)?\b");
+        prompt.ReleaseCreated |= Match(@"\bgh\s+release\s+create\b|/releases/new\b|\bpublish(?:ed)?\s+(?:a\s+)?release\b");
         if (searchable.Contains("image_gen", StringComparison.OrdinalIgnoreCase) || searchable.Contains("imagegen", StringComparison.OrdinalIgnoreCase)) prompt.GeneratedPicture = true;
+        prompt.UsedWeb |= Match(@"web__run|search_query|image_query");
+        prompt.UsedBrowser |= Match(@"cua_repl|createBrowserTab|getTab\s*\(");
+        bool dependencyChange = Match(@"\bnpm\s+(?:install|add|update)\b|\bpnpm\s+(?:install|add|update)\b|\byarn\s+(?:install|add|upgrade)\b|\bdotnet\s+add\s+\S+\s+package\b|\bpip(?:3)?\s+install\b|\buv\s+add\b|\bcargo\s+add\b");
+        prompt.DependenciesChanged |= dependencyChange;
+        if (!dependencyChange) prompt.InstalledSoftware |= Match(@"request_plugin_install|\bwinget\s+install\b|\bchoco\s+install\b|\bmsiexec(?:\.exe)?\b|\bdotnet\s+tool\s+install\b");
+        prompt.DocumentsChanged |= Match(@"documents|render_docx|\.(?:docx|pdf|xlsx|pptx)\b|apply_patch[\s\S]*\.(?:md|txt)\b");
+        prompt.AgentCount += System.Text.RegularExpressions.Regex.Matches(searchable, @"(?:collaboration\.)?spawn_agent\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Count;
+        prompt.AutomationChanged |= Match(@"automation_update|create_automation|update_automation");
         foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(raw, @"mcp__([A-Za-z0-9_]+)__([A-Za-z0-9_]+)"))
             prompt.McpTools.Add(match.Groups[1].Value + ": " + match.Groups[2].Value);
         if (raw.Contains("image_gen__imagegen", StringComparison.OrdinalIgnoreCase)) prompt.GeneratedPicture = true;
@@ -286,16 +333,23 @@ static class Analytics
         Add("event_msg", new { type = "task_started", turn_id = "b" });
         Add("event_msg", new { type = "user_message", message = "# Files mentioned by the user:\n\n## obraz.png: C:\\temp\\obraz.png\n## dane.csv: C:\\temp\\dane.csv\n\n## My request:\nDrugi prompt&#x20;" });
         Add("response_item", new { role = "user", content = new[] { new { text = "Drugi prompt" } } });
-        Add("response_item", new { type = "custom_tool_call", name = "exec", input = "dotnet build src/Meter/App.csproj; git commit -m test" });
+        Add("response_item", new { type = "custom_tool_call", name = "exec", input = "dotnet test src/Meter/App.csproj; dotnet build src/Meter/App.csproj; git commit -m test; git push origin main; dotnet publish src/Meter/App.csproj; gh pr create; gh release create v1; npm install pakiet" });
+        Add("response_item", new { type = "custom_tool_call", name = "exec", input = "apply_patch docs/readme.md" });
+        Add("response_item", new { type = "function_call", name = "web__run", arguments = "{\"search_query\":[]}" });
+        Add("response_item", new { type = "function_call", name = "mcp__cua_repl__js", arguments = "{}" });
+        Add("response_item", new { type = "function_call", name = "request_plugin_install", arguments = "{}" });
+        Add("response_item", new { type = "function_call", name = "spawn_agent", arguments = "{}" });
+        Add("response_item", new { type = "function_call", name = "automation_update", arguments = "{}" });
         Add("response_item", new { type = "function_call", name = "image_gen__imagegen", arguments = "{}" });
         Add("response_item", new { type = "function_call", name = "mcp__figma__get_file", arguments = "{}" });
         Tokens(175, 25, 138, 37, "2026-09-06T10:01:01Z");
+        Add("event_msg", new { type = "task_complete", status = "partial" }, "2026-09-06T10:01:02Z");
         File.WriteAllLines(path, lines.Append("{partial"));
         var result = Parse(path);
         var flagged = result.Prompts[1];
         if (result.Samples.Sum(x => x.Tokens) != 175 || result.Prompts.Count != 2 || result.Prompts[0].Tokens != 150 || result.Prompts[0].InputTokens != 120 || result.Prompts[0].OutputTokens != 30 || flagged.Tokens != 25 || flagged.Text != "Drugi prompt" || !flagged.OriginalText.Contains("## My request:") || flagged.OriginalText.Contains("&#x20;") || result.Prompts[0].Model != "gpt-test" || result.Prompts[0].ReasoningEffort != "high") throw new Exception("Błąd sumowania tokenów lub metadanych promptu.");
         if (result.Prompts[0].WorkedOnCode || result.Prompts[0].GitCommit || result.Prompts[0].GeneratedPicture || result.Prompts[0].McpTools.Count > 0) throw new Exception("Tekst wyniku narzędzia został błędnie uznany za wykonaną akcję.");
-        if (flagged.PictureCount != 1 || flagged.FileCount != 1 || !flagged.WorkedOnCode || !flagged.GitCommit || !flagged.GeneratedPicture || !flagged.McpTools.Contains("figma: get_file")) throw new Exception("Błąd wykrywania flag aktywności promptu.");
+        if (flagged.PictureCount != 1 || flagged.FileCount != 1 || !flagged.WorkedOnCode || !flagged.TestsRun || !flagged.ProjectBuilt || !flagged.GitCommit || !flagged.GitPush || !flagged.PullRequest || !flagged.PackageBuilt || !flagged.ReleaseCreated || !flagged.GeneratedPicture || !flagged.UsedWeb || !flagged.UsedBrowser || !flagged.DependenciesChanged || !flagged.InstalledSoftware || !flagged.DocumentsChanged || flagged.AgentCount != 1 || !flagged.AutomationChanged || !flagged.Partial || !flagged.McpTools.Contains("figma: get_file")) throw new Exception("Błąd wykrywania flag aktywności promptu.");
         if (PromptContent.Sections("Zwykłe zapytanie").FirstOrDefault()?.Title != "My request") throw new Exception("Zwykłe zapytanie nie trafiło do sekcji My request.");
         return "PASS: deltas, prompt boundaries, metadata and activity flags";
     }
@@ -312,10 +366,32 @@ static class PromptFlags
         if (prompt.FileCount > 0) flags.Add(new PromptFlag($"Files ({prompt.FileCount})", Color.FromArgb(91, 156, 255)));
         if (prompt.PictureCount > 0) flags.Add(new PromptFlag($"Picture ({prompt.PictureCount})", Color.FromArgb(230, 100, 173)));
         if (prompt.WorkedOnCode) flags.Add(new PromptFlag("Code", Color.FromArgb(77, 202, 218)));
-        if (prompt.GitCommit) flags.Add(new PromptFlag("Git", Color.FromArgb(244, 149, 72)));
+        if (prompt.TestsRun) flags.Add(new PromptFlag("Test", Color.FromArgb(124, 205, 116)));
+        if (prompt.ProjectBuilt) flags.Add(new PromptFlag("Build", Color.FromArgb(238, 195, 73)));
+        if (prompt.GitCommit) flags.Add(new PromptFlag("Commit", Color.FromArgb(244, 149, 72)));
+        if (prompt.GitPush) flags.Add(new PromptFlag("Push", Color.FromArgb(242, 112, 92)));
+        if (prompt.PullRequest) flags.Add(new PromptFlag("PR", Color.FromArgb(186, 125, 242)));
+        if (prompt.PackageBuilt) flags.Add(new PromptFlag("Package", Color.FromArgb(218, 170, 84)));
+        if (prompt.ReleaseCreated) flags.Add(new PromptFlag("Release", Color.FromArgb(255, 105, 145)));
         if (prompt.GeneratedPicture) flags.Add(new PromptFlag("Pic. Gen.", Color.FromArgb(168, 112, 244)));
+        if (prompt.UsedWeb) flags.Add(new PromptFlag("Web", Color.FromArgb(75, 176, 235)));
+        if (prompt.UsedBrowser) flags.Add(new PromptFlag("Browser", Color.FromArgb(67, 199, 184)));
         if (prompt.McpTools.Count > 0) flags.Add(new PromptFlag("MCP (" + string.Join(", ", prompt.McpTools.OrderBy(x => x)) + ")", Color.FromArgb(88, 207, 142)));
+        if (prompt.DependenciesChanged) flags.Add(new PromptFlag("Dependencies", Color.FromArgb(215, 160, 80)));
+        if (prompt.InstalledSoftware) flags.Add(new PromptFlag("Install", Color.FromArgb(123, 187, 104)));
+        if (prompt.DocumentsChanged) flags.Add(new PromptFlag("Docs", Color.FromArgb(115, 157, 232)));
+        if (prompt.AgentCount > 0) flags.Add(new PromptFlag($"Agent ({prompt.AgentCount})", Color.FromArgb(196, 119, 224)));
+        if (prompt.AutomationChanged) flags.Add(new PromptFlag("Automation", Color.FromArgb(72, 192, 207)));
         return flags;
+    }
+    public static List<PromptFlag> StatusItems(PromptUsage? prompt)
+    {
+        var statuses = new List<PromptFlag>();
+        if (prompt == null) return statuses;
+        if (prompt.Failed) statuses.Add(new PromptFlag("Failed", Color.FromArgb(240, 92, 92)));
+        if (prompt.Cancelled) statuses.Add(new PromptFlag("Cancelled", Color.FromArgb(164, 164, 164)));
+        if (prompt.Partial) statuses.Add(new PromptFlag("Partial", Color.FromArgb(245, 183, 75)));
+        return statuses;
     }
     public static string Text(PromptUsage? prompt)
     {
@@ -445,6 +521,8 @@ sealed class ChartHoverPopup : Form
     readonly Label outputValue;
     readonly Label flagsField;
     readonly FlagLine flagsValue;
+    readonly Label statusField;
+    readonly FlagLine statusValue;
     readonly TableLayoutPanel layout;
     readonly Func<int, int> P;
 
@@ -462,10 +540,11 @@ sealed class ChartHoverPopup : Form
         BackColor = Color.FromArgb(35, 35, 35);
         ForeColor = Color.FromArgb(242, 242, 242);
         Padding = new Padding(P(9), P(8), P(9), P(8));
-        layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 7, Margin = Padding.Empty, Padding = Padding.Empty };
+        layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 8, Margin = Padding.Empty, Padding = Padding.Empty };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, P(102)));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         for (int row = 0; row < 6; row++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(27)));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         Label Field(string text) => new() { Text = text, Dock = DockStyle.Fill, Margin = Padding.Empty, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = Color.FromArgb(178, 178, 178), TextAlign = ContentAlignment.MiddleLeft };
         Label Value(bool bold = false) => new() { Dock = DockStyle.Fill, Margin = Padding.Empty, Font = new Font("Segoe UI", 8.5f, bold ? FontStyle.Bold : FontStyle.Regular), ForeColor = ForeColor, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
@@ -480,6 +559,9 @@ sealed class ChartHoverPopup : Form
         flagsField = Field(L.Pick("Flagi", "Flags"));
         flagsValue = new FlagLine { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = ForeColor, Font = new Font("Segoe UI", 7.5f, FontStyle.Bold) };
         layout.Controls.Add(flagsField, 0, 6); layout.Controls.Add(flagsValue, 1, 6);
+        statusField = Field(L.Pick("Status", "Status"));
+        statusValue = new FlagLine { Dock = DockStyle.Fill, Margin = Padding.Empty, ForeColor = ForeColor, Font = new Font("Segoe UI", 7.5f, FontStyle.Bold) };
+        layout.Controls.Add(statusField, 0, 7); layout.Controls.Add(statusValue, 1, 7);
         Controls.Add(layout);
     }
 
@@ -503,8 +585,15 @@ sealed class ChartHoverPopup : Form
         bool showFlags = flags.Count > 0;
         flagsField.Visible = flagsValue.Visible = showFlags;
         flagsValue.Flags = flags;
-        layout.RowStyles[6].Height = showFlags ? P(48) : 0;
-        ClientSize = new Size(P(360), P(showFlags ? 228 : 180));
+        int flagsHeight = showFlags ? P(flags.Count > 12 ? 96 : flags.Count > 6 ? 72 : 48) : 0;
+        layout.RowStyles[6].Height = flagsHeight;
+        var statuses = PromptFlags.StatusItems(prompt);
+        bool showStatus = statuses.Count > 0;
+        statusField.Visible = statusValue.Visible = showStatus;
+        statusValue.Flags = statuses;
+        int statusHeight = showStatus ? P(27) : 0;
+        layout.RowStyles[7].Height = statusHeight;
+        ClientSize = new Size(P(360), P(180) + flagsHeight + statusHeight);
         var area = Screen.FromPoint(anchor).WorkingArea;
         int x = anchor.X + 14, y = anchor.Y + 14;
         if (x + Width > area.Right) x = anchor.X - Width - 14;
