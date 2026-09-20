@@ -1118,7 +1118,8 @@ class MeterForm : Form
     }
     Button SelectAt(string[] choices, int selected, int y, Action<int> changed, bool searchable = false, int x = 20, int width = 280, int verticalTextOffset = 0, Func<int, string>? selectedLabel = null)
     {
-        var select = new Button { Text = selectedLabel?.Invoke(selected) ?? choices[selected], Location = new Point(S(x), S(y)), Size = new Size(S(width), S(27)), Padding = new Padding(S(10), S(verticalTextOffset * 2), S(36), 0), FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, BackColor = Raised, ForeColor = MainText, Font = new Font("Segoe UI", 8.5f), TabStop = true };
+        bool showConversationIcons = searchable && selected > 0;
+        var select = new Button { Text = showConversationIcons ? "" : selectedLabel?.Invoke(selected) ?? choices[selected], Location = new Point(S(x), S(y)), Size = new Size(S(width), S(27)), Padding = new Padding(S(10), S(verticalTextOffset * 2), S(36), 0), FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, BackColor = Raised, ForeColor = MainText, Font = new Font("Segoe UI", 8.5f), TabStop = true };
         select.FlatAppearance.BorderColor = Color.FromArgb(73, 73, 73);
         select.FlatAppearance.MouseOverBackColor = DarkMenuRenderer.HoverColor;
         select.FlatAppearance.MouseDownBackColor = DarkMenuRenderer.HoverColor;
@@ -1135,7 +1136,7 @@ class MeterForm : Form
         select.Click += (_, _) =>
         {
             if (suppressNextOpen) { suppressNextOpen = false; return; }
-            var menu = new ContextMenuStrip { BackColor = Raised, ForeColor = MainText, ShowImageMargin = false, Font = new Font("Segoe UI", 9), Renderer = new DarkMenuRenderer() };
+            var menu = new ContextMenuStrip { BackColor = Raised, ForeColor = MainText, ShowImageMargin = false, Font = new Font("Segoe UI", 8.5f), Renderer = new DarkMenuRenderer() };
             activeSelectMenu = menu;
             menu.Closing += (_, _) =>
             {
@@ -1184,7 +1185,7 @@ class MeterForm : Form
                 var searchPanel = new Panel { Size = new Size(S(searchWidth), searchHeightPx), BackColor = Raised, Margin = Padding.Empty };
                 var icon = new Label { Text = "\uE721", Location = new Point(-6, 2), Size = new Size(dividerLeftPx, searchHeightPx), ForeColor = MainText, BackColor = Raised, Font = new Font("Segoe Fluent Icons", 14), TextAlign = ContentAlignment.MiddleCenter };
                 var divider = new Panel { Location = new Point(dividerLeftPx, (searchHeightPx - dividerHeightPx) / 2), Size = new Size(1, dividerHeightPx), BackColor = Color.FromArgb(100, 100, 100) };
-                search = new TextBox { Size = new Size(searchPanel.Width - fieldLeftPx - rightPaddingPx, S(23)), BackColor = Raised, ForeColor = MainText, BorderStyle = BorderStyle.None, Font = new Font("Segoe UI", 9), PlaceholderText = L.Pick("Szukaj rozmowy…", "Search conversations…") };
+                search = new TextBox { Size = new Size(searchPanel.Width - fieldLeftPx - rightPaddingPx, S(23)), BackColor = Raised, ForeColor = MainText, BorderStyle = BorderStyle.None, Font = new Font("Segoe UI", 8.5f), PlaceholderText = L.Pick("Szukaj rozmowy…", "Search conversations…") };
                 search.Location = new Point(fieldLeftPx, Math.Max(0, (searchHeightPx - search.Height) / 2));
                 searchPanel.Controls.Add(icon); searchPanel.Controls.Add(divider); searchPanel.Controls.Add(search);
                 menu.Items.Add(new ToolStripControlHost(searchPanel) { AutoSize = false, Size = searchPanel.Size, Margin = new Padding(S(7), S(6), S(7), S(5)), BackColor = Raised });
@@ -1233,10 +1234,24 @@ class MeterForm : Form
                     for (int row = 0; row < rowsToRender; row++)
                     {
                         int index = filteredIndices[firstVisibleRow + row];
-                        var item = new Button { Text = (index == selected ? "✓  " : "    ") + choices[index], Location = new Point(0, row * rowPixels), Size = new Size(viewport.Width, rowPixels), Padding = new Padding(S(5), 0, S(5), 0), FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, ForeColor = MainText, BackColor = Raised, Font = new Font("Segoe UI", 9), TabStop = false };
-                        item.FlatAppearance.BorderSize = 0; item.FlatAppearance.MouseOverBackColor = DarkMenuRenderer.HoverColor;
-                        item.Click += (_, _) => { if (!selectionQueued) { selectionQueued = true; menu.Close(); changed(index); Render(); } };
-                        item.MouseWheel += (_, e) => MoveOne(e.Delta < 0 ? 1 : -1);
+                        var item = new Panel { Location = new Point(0, row * rowPixels), Size = new Size(viewport.Width, rowPixels), BackColor = Raised, Cursor = Cursors.Hand };
+                        var check = new Label { Text = index == selected ? "✓" : "", Location = new Point(S(5), 0), Size = new Size(S(20), rowPixels), ForeColor = MainText, BackColor = Raised, Font = new Font("Segoe UI", 10), TextAlign = ContentAlignment.MiddleCenter };
+                        var conversation = new ConversationLine("", choices[index]) { Location = new Point(S(28), 0), Size = new Size(Math.Max(1, item.Width - S(33)), rowPixels), ForeColor = MainText, BackColor = Raised, Font = new Font("Segoe UI", 8.5f), Cursor = Cursors.Hand };
+                        void ChooseConversation() { if (!selectionQueued) { selectionQueued = true; menu.Close(); changed(index); Render(); } }
+                        void SetConversationHover(bool hovered)
+                        {
+                            var color = hovered ? DarkMenuRenderer.HoverColor : Raised;
+                            item.BackColor = color; check.BackColor = color; conversation.BackColor = color;
+                            conversation.Invalidate();
+                        }
+                        foreach (Control control in new Control[] { item, check, conversation })
+                        {
+                            control.Click += (_, _) => ChooseConversation();
+                            control.MouseEnter += (_, _) => SetConversationHover(true);
+                            control.MouseLeave += (_, _) => SetConversationHover(false);
+                            control.MouseWheel += (_, e) => MoveOne(e.Delta < 0 ? 1 : -1);
+                        }
+                        item.Controls.Add(check); item.Controls.Add(conversation);
                         viewport.Controls.Add(item);
                     }
                 }
@@ -1281,11 +1296,19 @@ class MeterForm : Form
             if (search != null) search.Focus();
         };
         var arrow = new Label { Text = "▾", Location = new Point(select.Width - S(28) - 1, 1), Size = new Size(S(28), select.Height - 2), BackColor = Raised, ForeColor = MainText, Font = new Font("Segoe UI", 8.5f), TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand };
+        ConversationLine? selectedConversation = null;
+        if (showConversationIcons)
+        {
+            selectedConversation = new ConversationLine("", choices[selected]) { Location = new Point(S(10), 0), Size = new Size(select.Width - S(46), select.Height - 2), ForeColor = MainText, BackColor = Raised, Font = new Font("Segoe UI", 8.5f), Cursor = Cursors.Hand };
+            selectedConversation.Click += (_, _) => select.PerformClick();
+            select.Controls.Add(selectedConversation);
+        }
         void UpdateSelectHover()
         {
             bool hovered = select.RectangleToScreen(select.ClientRectangle).Contains(Cursor.Position);
             select.BackColor = hovered ? DarkMenuRenderer.HoverColor : Raised;
             arrow.BackColor = hovered ? DarkMenuRenderer.HoverColor : Raised;
+            if (selectedConversation != null) { selectedConversation.BackColor = select.BackColor; selectedConversation.Invalidate(); }
         }
         select.MouseEnter += (_, _) => UpdateSelectHover();
         select.MouseLeave += (_, _) => UpdateSelectHover();
@@ -1293,7 +1316,7 @@ class MeterForm : Form
         arrow.MouseLeave += (_, _) => UpdateSelectHover();
         arrow.MouseDown += (_, _) => { UpdateSelectHover(); CloseOpenMenu(); };
         arrow.Click += (_, _) => select.PerformClick();
-        select.Controls.Add(arrow);
+        select.Controls.Add(arrow); arrow.BringToFront();
         body.Controls.Add(select); return select;
     }
     int RenderChart(int y)
