@@ -146,9 +146,8 @@ partial class MeterForm : Form
     static readonly Color MainText = UiTheme.MainText;
     static readonly Color MutedText = UiTheme.MainMuted;
     static readonly Color Accent = UiTheme.Accent;
-    const int WM_NCLBUTTONDOWN = 0xA1, HTCAPTION = 0x2, WM_SETICON = 0x80, WM_SETREDRAW = 0x0B, ICON_SMALL = 0, ICON_BIG = 1;
+    const int WM_SETICON = 0x80, WM_SETREDRAW = 0x0B, ICON_SMALL = 0, ICON_BIG = 1;
     const int WM_CLOSE = 0x10, WM_SYSCOMMAND = 0x112, SC_CLOSE = 0xF060, SC_MINIMIZE = 0xF020;
-    [DllImport("user32.dll")] static extern bool ReleaseCapture();
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int RegisterWindowMessage(string message);
     static readonly int TaskbarButtonCreatedMessage = RegisterWindowMessage("TaskbarButtonCreated");
@@ -179,6 +178,7 @@ partial class MeterForm : Form
     bool taskbarButtonCreated;
     string taskbarMeterResult = "not started";
     float layoutScale;
+    Screen? pinnedScreen;
     int S(int value) => Math.Max(1, (int)Math.Round(value * layoutScale));
     JsonObject? current;
     static string Number(long n) => n.ToString("N0", L.Culture);
@@ -217,7 +217,7 @@ partial class MeterForm : Form
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(L.Pick("Zakończ", "Exit"), null, (_, _) => { quitting = true; Close(); });
         tray = new NotifyIcon { Icon = Icon, Text = L.Pick("Codex Meter — odczytywanie zużycia", "Codex Meter — reading usage"), Visible = true, ContextMenuStrip = menu };
-        tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) Reveal(); };
+        tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) RevealFromTray(); };
         FormClosed += (_, _) =>
         {
             timer.Stop(); timer.Dispose(); sessionDebounce.Stop(); sessionDebounce.Dispose();
@@ -246,8 +246,6 @@ partial class MeterForm : Form
         close.FlatAppearance.BorderSize = 0; close.FlatAppearance.MouseOverBackColor = Color.FromArgb(196, 43, 28); close.FlatAppearance.MouseDownBackColor = Color.FromArgb(153, 30, 22);
         tips.SetToolTip(close, L.Pick("Minimalizuj lub ukryj do zasobnika — zgodnie z ustawieniem PPM", "Minimize or hide in the notification area — based on the right-click setting"));
         close.Click += (_, _) => Close();
-        void Drag(object? sender, MouseEventArgs e) { if (e.Button == MouseButtons.Left) { ReleaseCapture(); SendMessage(Handle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero); } }
-        titleBar.MouseDown += Drag; title.MouseDown += Drag;
         titleBar.Controls.Add(title); titleBar.Controls.Add(close); close.BringToFront(); Controls.Add(titleBar); titleBar.BringToFront();
     }
     static JsonObject TestRemoteUsage() => new()
@@ -294,7 +292,8 @@ partial class MeterForm : Form
     }
     void PositionPanel(Screen? target = null)
     {
-        var area = (target ?? Screen.FromPoint(Cursor.Position)).WorkingArea;
+        // The panel is anchored once. Refreshes and tray clicks must never move it.
+        var area = (pinnedScreen ??= target ?? Screen.FromPoint(Cursor.Position)).WorkingArea;
         int x = Math.Clamp(area.Right - Width - S(12), area.Left, Math.Max(area.Left, area.Right - Width));
         int y = Math.Clamp(area.Bottom - Height - S(12), area.Top, Math.Max(area.Top, area.Bottom - Height));
         SetBounds(x, y, Width, Height, BoundsSpecified.Location);
@@ -312,18 +311,16 @@ partial class MeterForm : Form
     }
     void Reveal()
     {
-        var target = Screen.FromPoint(Cursor.Position);
-        bool restoring = WindowState == FormWindowState.Minimized;
-        if (restoring) Hide();
         ShowInTaskbar = true;
-        WindowState = FormWindowState.Normal;
-        PositionPanel(target);
         if (!Visible) Show();
-        PositionPanel(target);
+        WindowState = FormWindowState.Normal;
+        PositionPanel();
         ApplyTaskbarMeter();
+        BringToFront();
         Activate();
-        BeginInvoke((Action)(() => PositionPanel(target)));
+        BeginInvoke((Action)(() => PositionPanel()));
     }
+    void RevealFromTray() => Reveal();
     Label TextAt(string text, int x, int y, int width, int height, float size = 10, Color? color = null, bool bold = false)
     {
         var label = new Label { Text = text, Location = new Point(S(x), S(y)), Size = new Size(S(width), S(height)), Font = UiTheme.Font(size, bold ? FontStyle.Bold : FontStyle.Regular), ForeColor = color ?? ForeColor };

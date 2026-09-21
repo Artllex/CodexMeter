@@ -25,6 +25,18 @@ partial class MeterForm
         PositionPanel();
         if (!Screen.FromControl(this).WorkingArea.Contains(Bounds))
             throw new InvalidOperationException("Panel znajduje się poza obszarem roboczym ekranu.");
+        var pinnedBounds = Bounds;
+        PositionPanel(Screen.AllScreens[^1]);
+        if (Bounds.Location != pinnedBounds.Location)
+            throw new InvalidOperationException("Odświeżenie lub zmiana ekranu przesunęły przypięty panel.");
+        HideToTray();
+        Application.DoEvents();
+        RevealFromTray();
+        Application.DoEvents();
+        if (!Visible || WindowState != FormWindowState.Normal)
+            throw new InvalidOperationException("Kliknięcie ikony zasobnika nie przywróciło panelu.");
+        if (Bounds.Location != pinnedBounds.Location)
+            throw new InvalidOperationException("Kliknięcie ikony zasobnika przesunęło przypięty panel.");
         File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "taskbar-test.txt"),
             taskbarMeterResult.Contains("progress-cleared=0x00000000, overlay-cleared=0x00000000")
                 ? "PASS: taskbar integration"
