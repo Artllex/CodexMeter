@@ -152,7 +152,7 @@ partial class MeterForm : Form
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int RegisterWindowMessage(string message);
     static readonly int TaskbarButtonCreatedMessage = RegisterWindowMessage("TaskbarButtonCreated");
     readonly NotifyIcon tray;
-    readonly Panel body = new() { AutoScroll = true, Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right };
+    readonly Panel body = new() { AutoScroll = false, Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right };
     readonly Panel titleBar = new() { Dock = DockStyle.Top };
     readonly ToolTip tips = new() { AutoPopDelay = 15000 };
     readonly Label status = new() { AutoSize = false, Size = new Size(280, 18), ForeColor = Color.Gray, Font = UiTheme.Font(8), Location = new Point(20, 233) };
@@ -179,6 +179,7 @@ partial class MeterForm : Form
     string taskbarMeterResult = "not started";
     float layoutScale;
     Screen? pinnedScreen;
+    int bodyContentHeight;
     int S(int value) => Math.Max(1, (int)Math.Round(value * layoutScale));
     JsonObject? current;
     static string Number(long n) => n.ToString("N0", L.Culture);
@@ -306,6 +307,9 @@ partial class MeterForm : Form
     }
     void HideToTray()
     {
+        // Do not preserve native scrollbars while the hidden form is being restored.
+        body.AutoScroll = false;
+        body.AutoScrollMinSize = Size.Empty;
         ShowInTaskbar = false;
         Hide();
     }
@@ -318,7 +322,7 @@ partial class MeterForm : Form
         ApplyTaskbarMeter();
         BringToFront();
         Activate();
-        BeginInvoke((Action)(() => PositionPanel()));
+        BeginInvoke((Action)(() => { UpdateBodyScrolling(); PositionPanel(); }));
     }
     void RevealFromTray() => Reveal();
     Label TextAt(string text, int x, int y, int width, int height, float size = 10, Color? color = null, bool bold = false)
@@ -330,6 +334,8 @@ partial class MeterForm : Form
     {
         SuspendLayout();
         body.SuspendLayout();
+        body.AutoScroll = false;
+        body.AutoScrollMinSize = Size.Empty;
         bool bodyRedrawPaused = body.IsHandleCreated;
         if (bodyRedrawPaused) SendMessage(body.Handle, WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero);
         body.Controls.Remove(status);
@@ -371,7 +377,7 @@ partial class MeterForm : Form
         int targetHeight = y + 34;
         ClientSize = new Size(S(320), Math.Min(S(targetHeight + 36), Math.Max(S(346), Screen.FromControl(this).WorkingArea.Height - S(24))));
         body.Size = new Size(ClientSize.Width, ClientSize.Height - titleBar.Height);
-        body.AutoScrollMinSize = new Size(0, S(targetHeight));
+        bodyContentHeight = S(targetHeight);
         if (used.HasValue) UpdateTrayGauge(used, remaining, reset);
         else tray.Text = L.Pick("Codex Meter — brak danych o wykorzystaniu", "Codex Meter — no usage data");
         body.ResumeLayout();
@@ -383,7 +389,15 @@ partial class MeterForm : Form
             body.Update();
         }
         ResumeLayout();
+        UpdateBodyScrolling();
         PositionPanel();
+    }
+
+    void UpdateBodyScrolling()
+    {
+        bool needsScroll = bodyContentHeight > body.ClientSize.Height;
+        body.AutoScroll = needsScroll;
+        body.AutoScrollMinSize = needsScroll ? new Size(0, bodyContentHeight) : Size.Empty;
     }
 
     Button SectionButton(string text, int y)

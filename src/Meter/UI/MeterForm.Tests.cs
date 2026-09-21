@@ -37,6 +37,8 @@ partial class MeterForm
             throw new InvalidOperationException("Kliknięcie ikony zasobnika nie przywróciło panelu.");
         if (Bounds.Location != pinnedBounds.Location)
             throw new InvalidOperationException("Kliknięcie ikony zasobnika przesunęło przypięty panel.");
+        if (!chartOpen && !promptHistoryOpen && (body.HorizontalScroll.Visible || body.VerticalScroll.Visible))
+            throw new InvalidOperationException("Zwarty panel bez rozwiniętej treści pokazuje suwaki przewijania.");
         File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "taskbar-test.txt"),
             taskbarMeterResult.Contains("progress-cleared=0x00000000, overlay-cleared=0x00000000")
                 ? "PASS: taskbar integration"
