@@ -64,7 +64,7 @@ static class Program
         // Keep the taskbar window separate from the fixed MSIX package icon.
         // Windows can then use the live meter icon assigned to the window.
         SetCurrentProcessExplicitAppUserModelID("Artllex.CodexMeter.Dynamic");
-        using var mutex = new Mutex(true, args.Contains("--selftest") || args.Contains("--popup-preview") || args.Contains("--ui-selftest") ? "Local\\CodexMeterPreview" : "Local\\CodexMeterArkadiusz", out bool first);
+        using var mutex = new Mutex(true, args.Contains("--selftest") || args.Contains("--popup-preview") || args.Contains("--panel-screenshot") || args.Contains("--ui-selftest") ? "Local\\CodexMeterPreview" : "Local\\CodexMeterArkadiusz", out bool first);
         if (!first) { AppMessages.ShowExisting(); return; }
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
@@ -74,6 +74,27 @@ static class Program
             string output = args.SkipWhile(x => x != "--popup-preview").Skip(1).FirstOrDefault()
                 ?? Path.Combine(AppContext.BaseDirectory, "popup-preview.png");
             CompletionPopup.ExportPreview(Path.GetFullPath(output));
+            return;
+        }
+        if (args.Contains("--panel-screenshot"))
+        {
+            string output = args.SkipWhile(x => x != "--panel-screenshot").Skip(1).FirstOrDefault()
+                ?? Path.Combine(AppContext.BaseDirectory, "codex-meter-panel-en-US.png");
+            var english = CultureInfo.GetCultureInfo("en-US");
+            CultureInfo.DefaultThreadCurrentCulture = english;
+            CultureInfo.DefaultThreadCurrentUICulture = english;
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
+            using var form = new MeterForm();
+            form.Show();
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < deadline)
+            {
+                Application.DoEvents();
+                Thread.Sleep(25);
+            }
+            using var bitmap = new Bitmap(form.Width, form.Height);
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+            bitmap.Save(output, System.Drawing.Imaging.ImageFormat.Png);
             return;
         }
         if (args.Contains("--ui-selftest"))
