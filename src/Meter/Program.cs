@@ -84,7 +84,8 @@ static class Program
             CultureInfo.DefaultThreadCurrentCulture = english;
             CultureInfo.DefaultThreadCurrentUICulture = english;
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
-            using var form = new MeterForm();
+            using var form = new MeterForm(test: true);
+            form.PrepareStoreScreenshotPreview();
             form.Show();
             var deadline = DateTime.UtcNow.AddSeconds(5);
             while (DateTime.UtcNow < deadline)
@@ -173,6 +174,7 @@ partial class MeterForm : Form
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int RegisterWindowMessage(string message);
     static readonly int TaskbarButtonCreatedMessage = RegisterWindowMessage("TaskbarButtonCreated");
     readonly NotifyIcon tray;
+    internal ContextMenuStrip TrayMenu => tray.ContextMenuStrip!;
     readonly Panel body = new() { AutoScroll = false, Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right };
     readonly Panel titleBar = new() { Dock = DockStyle.Top };
     readonly ToolTip tips = new() { AutoPopDelay = 15000 };
@@ -184,7 +186,7 @@ partial class MeterForm : Form
     readonly string dataDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "CodexMeter", "data");
-    bool busy, quitting, keepOnTaskbar = true;
+    bool busy, quitting, keepOnTaskbar = true, showCompletionCardsAutomatically = true;
     bool chartOpen, promptHistoryOpen, localBusy;
     int chartMode = 0, chartTokenMode = 0;
     string chartConversationFilter = "";
@@ -218,17 +220,24 @@ partial class MeterForm : Form
         PositionPanel();
         BuildTitleBar();
         Controls.Add(body); body.BringToFront(); titleBar.BringToFront();
-        var menu = new ContextMenuStrip();
-        menu.Items.Add(L.Pick("Pokaż zużycie", "Show usage"), null, (_, _) => Reveal());
-        menu.Items.Add(L.Pick("Odśwież", "Refresh"), null, async (_, _) => { await RefreshData(); await RefreshLocal(); });
-        var xBehavior = new ToolStripMenuItem(L.Pick("Przycisk X", "X button"));
-        var minimizeWithX = new ToolStripMenuItem(L.Pick("Minimalizuj do paska zadań", "Minimize to taskbar")) { Checked = keepOnTaskbar };
-        var closeWithX = new ToolStripMenuItem(L.Pick("Ukryj z paska zadań — zostaw w zasobniku", "Hide from taskbar — keep in notification area")) { Checked = !keepOnTaskbar };
+        var menu = DarkMenuRenderer.CreateMenu();
+        static string UncheckedLabel(string label) => "    " + label;
+        menu.Items.Add(UncheckedLabel(L.Pick("Pokaż zużycie", "Show usage")), null, (_, _) => Reveal());
+        menu.Items.Add(UncheckedLabel(L.Pick("Odśwież", "Refresh")), null, async (_, _) => { await RefreshData(); await RefreshLocal(); });
+        var xBehavior = new ToolStripMenuItem(UncheckedLabel(L.Pick("Przycisk X", "X button")));
+        var minimizeWithX = new ToolStripMenuItem();
+        var closeWithX = new ToolStripMenuItem();
+        static string CheckedLabel(bool selected, string label) => (selected ? "✓  " : "    ") + label;
+        void UpdateXLabels()
+        {
+            minimizeWithX.Text = CheckedLabel(keepOnTaskbar, L.Pick("Minimalizuj do paska zadań", "Minimize to taskbar"));
+            closeWithX.Text = CheckedLabel(!keepOnTaskbar, L.Pick("Ukryj w zasobniku", "Hide in notification area"));
+        }
+        UpdateXLabels();
         void SetXBehavior(bool keep)
         {
             keepOnTaskbar = keep;
-            minimizeWithX.Checked = keep;
-            closeWithX.Checked = !keep;
+            UpdateXLabels();
             SaveSettings();
         }
         minimizeWithX.Click += (_, _) => SetXBehavior(true);
@@ -236,8 +245,41 @@ partial class MeterForm : Form
         xBehavior.DropDownItems.Add(minimizeWithX);
         xBehavior.DropDownItems.Add(closeWithX);
         menu.Items.Add(xBehavior);
+        var automaticCards = new ToolStripMenuItem();
+        void UpdateAutomaticCardsLabel() => automaticCards.Text = CheckedLabel(showCompletionCardsAutomatically,
+            L.Pick("Pokazuj karty wynikowe automatycznie", "Show completion cards automatically"));
+        UpdateAutomaticCardsLabel();
+        automaticCards.Click += (_, _) =>
+        {
+            showCompletionCardsAutomatically = !showCompletionCardsAutomatically;
+            UpdateAutomaticCardsLabel();
+            SaveSettings();
+        };
+        menu.Items.Add(automaticCards);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(L.Pick("Zakończ", "Exit"), null, (_, _) => { quitting = true; Close(); });
+        menu.Items.Add(UncheckedLabel(L.Pick("Zakończ", "Exit")), null, (_, _) => { quitting = true; Close(); });
+        void StyleMenu(ToolStripDropDownMenu styledMenu)
+        {
+            styledMenu.BackColor = UiTheme.MenuSurface;
+            styledMenu.ForeColor = MainText;
+            styledMenu.ShowImageMargin = false;
+            styledMenu.ShowCheckMargin = false;
+            styledMenu.Font = UiTheme.Font(8.5f);
+            styledMenu.Renderer = new DarkMenuRenderer();
+            int rowWidth = Math.Max(S(180), styledMenu.Items.OfType<ToolStripMenuItem>()
+                .Max(item => TextRenderer.MeasureText(item.Text, styledMenu.Font).Width) + S(21));
+            foreach (ToolStripItem item in styledMenu.Items)
+            {
+                if (item is ToolStripSeparator separator)
+                {
+                    separator.AutoSize = false;
+                    separator.Size = new Size(rowWidth, S(7));
+                }
+                else DarkMenuRenderer.StyleRow(item, rowWidth, S(UiMetrics.SelectionRowHeight));
+            }
+        }
+        StyleMenu(menu);
+        StyleMenu((ToolStripDropDownMenu)xBehavior.DropDown);
         tray = new NotifyIcon { Icon = Icon, Text = L.Pick("Codex Meter — odczytywanie zużycia", "Codex Meter — reading usage"), Visible = true, ContextMenuStrip = menu };
         tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) RevealFromTray(); };
         FormClosed += (_, _) =>
@@ -285,6 +327,35 @@ partial class MeterForm : Form
             }
         }
     };
+    internal void PrepareStoreScreenshotPreview()
+    {
+        var now = DateTimeOffset.Now;
+        current = new JsonObject
+        {
+            ["fetchedAt"] = now.ToString("O", CultureInfo.InvariantCulture),
+            ["limits"] = new JsonObject
+            {
+                ["rateLimits"] = new JsonObject
+                {
+                    ["primary"] = new JsonObject
+                    {
+                        ["usedPercent"] = 42.0,
+                        ["resetsAt"] = now.AddHours(3).ToUnixTimeSeconds()
+                    }
+                }
+            }
+        };
+        local = new LocalUsage(
+            new List<TokenSample>
+            {
+                new("store-preview-1", now.AddMinutes(-52), 482_150, InputTokens: 467_900, OutputTokens: 14_250),
+                new("store-preview-2", now.AddMinutes(-27), 317_420, InputTokens: 309_810, OutputTokens: 7_610),
+                new("store-preview-3", now.AddMinutes(-8), 196_780, InputTokens: 191_500, OutputTokens: 5_280)
+            },
+            new List<PromptUsage>(), 0, 0);
+        remoteError = null;
+        Render();
+    }
     void LayoutChrome()
     {
         titleBar.Height = S(36);
@@ -323,7 +394,11 @@ partial class MeterForm : Form
     void MinimizeToTaskbar()
     {
         ShowInTaskbar = true;
+        // Hide the painted panel before Windows changes its window state. Otherwise
+        // it briefly shows a partially repainted frame during the minimize animation.
+        Hide();
         WindowState = FormWindowState.Minimized;
+        Show();
         ApplyTaskbarMeter();
     }
     void HideToTray()
@@ -331,8 +406,8 @@ partial class MeterForm : Form
         // Do not preserve native scrollbars while the hidden form is being restored.
         body.AutoScroll = false;
         body.AutoScrollMinSize = Size.Empty;
-        ShowInTaskbar = false;
         Hide();
+        ShowInTaskbar = false;
     }
     void Reveal()
     {

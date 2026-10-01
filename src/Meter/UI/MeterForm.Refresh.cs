@@ -29,7 +29,8 @@ partial class MeterForm
             if (!IsDisposed)
             {
                 if (showBusy || completedNow.Count > 0) Render();
-                foreach (var prompt in completedNow) CompletionPopup.Display(prompt);
+                if (showCompletionCardsAutomatically)
+                    foreach (var prompt in completedNow) CompletionPopup.Display(prompt);
             }
         }
     }

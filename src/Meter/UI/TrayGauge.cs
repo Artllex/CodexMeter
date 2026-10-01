@@ -26,11 +26,12 @@ static class TrayGauge
     static Bitmap Render(int size, string value, double usedPercent)
     {
         float scale = size / 32f;
-        // Keep transparent space below the gauge so it sits slightly higher
-        // in the Windows taskbar button without clipping the ring.
-        float gaugeScale = 26f / 30f;
-        float gaugeX = 3f;
-        float gaugeY = 2.5f;
+        // The live tray gauge should fill the icon canvas. Keep the existing
+        // framing of the larger GPT logo used by Store artwork.
+        bool logo = value == "GPT";
+        float gaugeScale = logo ? 26f / 30f : 1f;
+        float gaugeX = logo ? 3f : 1f;
+        float gaugeY = logo ? 2.5f : 1f;
         float G(float coordinate) => coordinate * gaugeScale;
         var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         using (var graphics = Graphics.FromImage(bitmap))

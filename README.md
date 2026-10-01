@@ -16,7 +16,7 @@ Interfejs dopasowuje się do języka wyświetlania Windows: po polsku na polskim
 - Pozostały i wykorzystany limit Codex wraz z czasem resetu.
 - Lokalne wykresy użycia i historia ostatnich promptów.
 - Powiadomienia o ukończeniu z liczbą tokenów wejściowych/wyjściowych, promptem, rozmową, modelem i poziomem myślenia.
-- Polski i angielski interfejs oraz opcja menu zasobnika określająca, czy `X` minimalizuje okno do paska zadań, czy ukrywa je w obszarze powiadomień.
+- Polski i angielski interfejs oraz opcje menu zasobnika określające działanie przycisku `X` i automatyczne wyświetlanie kart wynikowych.
 
 ### Wymagania
 
@@ -50,7 +50,7 @@ The interface follows the Windows display language: Polish for Polish Windows, E
 - Remaining and used Codex limit with reset time.
 - Local usage charts and recent prompt history.
 - Completion notifications with input/output token counts, prompt, conversation, model, and reasoning level.
-- Polish and English interface, plus a tray-menu option that controls whether `X` minimizes to the taskbar or hides the panel to the notification area.
+- Polish and English interface, plus tray-menu options for the `X` button behavior and automatic completion cards.
 
 ### Requirements
 

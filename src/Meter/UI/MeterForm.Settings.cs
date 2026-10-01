@@ -13,16 +13,25 @@ partial class MeterForm
         try
         {
             string path = Path.Combine(dataDir, "settings.json");
-            if (File.Exists(path)) keepOnTaskbar = JsonNode.Parse(File.ReadAllText(path))?["keepOnTaskbar"]?.GetValue<bool>() ?? true;
+            if (File.Exists(path))
+            {
+                var settings = JsonNode.Parse(File.ReadAllText(path));
+                keepOnTaskbar = settings?["keepOnTaskbar"]?.GetValue<bool>() ?? true;
+                showCompletionCardsAutomatically = settings?["showCompletionCardsAutomatically"]?.GetValue<bool>() ?? true;
+            }
         }
-        catch (Exception ex) { Diagnostics.Report("Load settings", ex); keepOnTaskbar = true; }
+        catch (Exception ex) { Diagnostics.Report("Load settings", ex); keepOnTaskbar = true; showCompletionCardsAutomatically = true; }
     }
     void SaveSettings()
     {
         try
         {
             Directory.CreateDirectory(dataDir);
-            File.WriteAllText(Path.Combine(dataDir, "settings.json"), new JsonObject { ["keepOnTaskbar"] = keepOnTaskbar }.ToJsonString());
+            File.WriteAllText(Path.Combine(dataDir, "settings.json"), new JsonObject
+            {
+                ["keepOnTaskbar"] = keepOnTaskbar,
+                ["showCompletionCardsAutomatically"] = showCompletionCardsAutomatically
+            }.ToJsonString());
         }
         catch (Exception ex) { Diagnostics.Report("Save settings", ex); }
     }

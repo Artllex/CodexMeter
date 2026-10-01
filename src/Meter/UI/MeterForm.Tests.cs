@@ -39,11 +39,22 @@ partial class MeterForm
             throw new InvalidOperationException("Kliknięcie ikony zasobnika przesunęło przypięty panel.");
         if (!chartOpen && !promptHistoryOpen && (body.HorizontalScroll.Visible || body.VerticalScroll.Visible))
             throw new InvalidOperationException("Zwarty panel bez rozwiniętej treści pokazuje suwaki przewijania.");
+        var closeButton = titleBar.Controls.OfType<Button>().Single(button => button.Text == "X");
+        bool previousCloseBehavior = keepOnTaskbar;
+        keepOnTaskbar = true;
+        closeButton.PerformClick();
+        Application.DoEvents();
+        keepOnTaskbar = previousCloseBehavior;
+        if (!Visible || !ShowInTaskbar || WindowState != FormWindowState.Minimized)
+            throw new InvalidOperationException("Przycisk X nie zminimalizował panelu bez usunięcia przycisku z paska zadań.");
+        RevealFromTray();
+        Application.DoEvents();
+        if (!Visible || WindowState != FormWindowState.Normal || Bounds.Location != pinnedBounds.Location)
+            throw new InvalidOperationException("Panel nie wrócił poprawnie po zamknięciu przyciskiem X.");
         File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "taskbar-test.txt"),
             taskbarMeterResult.Contains("progress-cleared=0x00000000, overlay-cleared=0x00000000")
                 ? "PASS: taskbar integration"
                 : $"FAIL: {taskbarMeterResult}; TaskbarButtonCreated={taskbarButtonCreated}");
-        var closeButton = titleBar.Controls.OfType<Button>().Single(button => button.Text == "X");
         if (closeButton.FlatAppearance.MouseOverBackColor == closeButton.BackColor)
             throw new InvalidOperationException("Przycisk X nie ma widocznego stanu hover.");
         VerifyChartRanges();

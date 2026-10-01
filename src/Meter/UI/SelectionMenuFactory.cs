@@ -32,7 +32,7 @@ sealed class SelectionMenuFactory
         select.Click += (_, _) =>
         {
             if (suppressNextOpen) { suppressNextOpen = false; return; }
-            var menu = new ContextMenuStrip { BackColor = Raised, ForeColor = MainText, ShowImageMargin = false, Font = UiTheme.Font(8.5f), Renderer = new DarkMenuRenderer() };
+            var menu = DarkMenuRenderer.CreateMenu();
             activeSelectMenu = menu;
             menu.Closing += (_, _) =>
             {
@@ -58,10 +58,8 @@ sealed class SelectionMenuFactory
                     int index = i; var item = menu.Items.Add((i == selected ? "✓  " : "    ") + choices[i]);
                     // Keep ordinary dropdown entries at the same 30-logical-pixel
                     // row height as searchable conversation rows.
-                    item.AutoSize = false;
-                    item.Size = new Size(S(width), S(UiMetrics.SelectionRowHeight));
+                    DarkMenuRenderer.StyleRow(item, S(width), S(UiMetrics.SelectionRowHeight));
                     item.Padding = new Padding(S(5), 0, S(5), 0);
-                    item.TextAlign = ContentAlignment.MiddleLeft;
                     item.MouseEnter += (_, _) => { item.BackColor = DarkMenuRenderer.HoverColor; item.Invalidate(); };
                     item.MouseLeave += (_, _) => { item.BackColor = Color.Empty; item.Invalidate(); };
                     item.Click += (_, _) =>
