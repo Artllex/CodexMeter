@@ -12,10 +12,10 @@
 		Name="Artllex.CodexMeterWidget"
 		Publisher="CN=74512847-387C-4F9E-9BCB-505BCA110D12"
 		ProcessorArchitecture="x64"
-		Version="1.0.3.0" />
+		Version="1.0.8.0" />
 
 	<Properties>
-		<DisplayName>Codex Meter Widget</DisplayName>
+		<DisplayName>Codex Meter</DisplayName>
 		<PublisherDisplayName>Artllex</PublisherDisplayName>
 		<Logo>Images\StoreLogo.png</Logo>
 	</Properties>
@@ -35,8 +35,8 @@
 			Executable="SampleWidgetProviderApp\SampleWidgetProviderApp.exe"
 			EntryPoint="Windows.FullTrustApplication">
 			<uap:VisualElements
-				DisplayName="Codex Meter Widget"
-				Description="Zużycie limitu Codex w panelu Widżety Windows"
+				DisplayName="Codex Meter"
+				Description="Codex usage in the Windows system tray"
 				BackgroundColor="transparent"
 				Square150x150Logo="Images\Square150x150Logo.png"
 				Square44x44Logo="Images\Square44x44Logo.png"
